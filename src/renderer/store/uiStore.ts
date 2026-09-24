@@ -3,7 +3,20 @@ import { create } from 'zustand';
 export interface ToastNotification {
   id: string;
   message: string;
-  type?: 'info' | 'success' | 'warning';
+  type?: 'info' | 'success' | 'warning' | 'error';
+}
+
+export interface SceneHierarchyItem {
+  id: string;
+  name: string;
+  type: string;
+  category: string;
+  icon: string;
+  position: [number, number, number];
+  scale: [number, number, number];
+  roughness?: number;
+  metalness?: number;
+  castShadow?: boolean;
 }
 
 export interface SelectedNodeInfo {
@@ -65,6 +78,7 @@ interface UIState {
 
   // Selected Object in 3D Scene
   selectedNode: SelectedNodeInfo | null;
+  sceneHierarchy: SceneHierarchyItem[];
 
   // Live Telemetry
   telemetry: {
@@ -92,7 +106,7 @@ interface UIState {
   showNotification: (
     message: string,
     durationMs?: number,
-    type?: 'info' | 'success' | 'warning'
+    type?: 'info' | 'success' | 'warning' | 'error'
   ) => void;
   dismissNotification: (id: string) => void;
 
@@ -114,6 +128,7 @@ interface UIState {
   setTuningParam: <K extends keyof TuningParams>(key: K, value: TuningParams[K]) => void;
 
   setSelectedNode: (node: SelectedNodeInfo | null) => void;
+  setSceneHierarchy: (items: SceneHierarchyItem[]) => void;
   updateSelectedNodePosition: (axis: 'x' | 'y' | 'z', value: number) => void;
 
   setTelemetry: (t: Partial<UIState['telemetry']>) => void;
@@ -154,6 +169,15 @@ export const useUIStore = create<UIState>((set) => ({
   },
 
   selectedNode: null,
+  sceneHierarchy: [
+    { id: 'node_terrain', name: 'Terrain_Heightmap_Surface', type: 'Terrain/HeightmapMesh', category: 'Terrain', icon: 'ph-mountains', position: [0, 0, 0], scale: [1, 1, 1], roughness: 0.85, metalness: 0.1 },
+    { id: 'node_pine_1', name: 'Procedural_Pine_4821', type: 'Flora/ProceduralPine', category: 'Flora', icon: 'ph-tree-evergreen', position: [4.2, 0, -6.5], scale: [1, 1, 1], roughness: 0.75, metalness: 0.05 },
+    { id: 'node_pine_2', name: 'Procedural_Pine_0293', type: 'Flora/ProceduralPine', category: 'Flora', icon: 'ph-tree-evergreen', position: [-8.1, 0, 12.3], scale: [1, 1, 1], roughness: 0.75, metalness: 0.05 },
+    { id: 'node_rock_1', name: 'Rock_Cluster_3819', type: 'Geology/Boulders', category: 'Geology', icon: 'ph-diamonds-four', position: [12.5, 0, -4.2], scale: [1, 1, 1], roughness: 0.92, metalness: 0.08 },
+    { id: 'node_npc_1', name: 'NPC_Eldrin_The_Ranger', type: 'NPCs/HumanoidNPC', category: 'NPCs', icon: 'ph-user', position: [3, 0, 5], scale: [1, 1, 1], roughness: 0.6, metalness: 0.0 },
+    { id: 'node_sun', name: 'Sun', type: 'Lights/DirectionalSun', category: 'Lights', icon: 'ph-sun', position: [35, 50, 25], scale: [1, 1, 1] },
+    { id: 'node_ambient', name: 'Ambient', type: 'Lights/AmbientLight', category: 'Lights', icon: 'ph-lightbulb', position: [0, 0, 0], scale: [1, 1, 1] },
+  ],
 
   telemetry: {
     fps: 60,
@@ -228,6 +252,7 @@ export const useUIStore = create<UIState>((set) => ({
     })),
 
   setSelectedNode: (selectedNode) => set({ selectedNode }),
+  setSceneHierarchy: (sceneHierarchy) => set({ sceneHierarchy }),
   updateSelectedNodePosition: (axis, value) =>
     set((state) => {
       if (!state.selectedNode) return state;

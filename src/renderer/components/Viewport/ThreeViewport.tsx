@@ -8,6 +8,9 @@ import { useNPCStore } from '../../store/npcStore';
 import { NotificationToast } from '../HUD/NotificationToast';
 import { SpotlightPromptBar } from './SpotlightPromptBar';
 import { Crosshair } from '../HUD/Crosshair';
+import { DebugPanel } from '../HUD/DebugPanel';
+import { SmartEditBar } from '../HUD/SmartEditBar';
+import { GenerationOverlay } from '../HUD/GenerationOverlay';
 
 // Simple deterministic pseudo-random function
 function pseudoRandom(seed: number): number {
@@ -322,6 +325,15 @@ export const ThreeViewport = () => {
       const sLight = sunLightRef.current;
       if (!scene || !group || !ambLight || !sLight) return;
 
+      // 0. Clear selection on world rebuild (prevents ghost wireframe boxes)
+      if (selectionBoxRef.current) {
+        selectionBoxRef.current.visible = false;
+        scene.remove(selectionBoxRef.current);
+        selectionBoxRef.current.dispose();
+        selectionBoxRef.current = null;
+      }
+      setSelectedNode(null);
+
       // 1. Dispose old entities
       while (group.children.length > 0) {
         const obj = group.children[0];
@@ -621,7 +633,10 @@ export const ThreeViewport = () => {
       if (now - lastTime >= 1000) {
         const tel = useUIStore.getState().telemetry;
         const hudFpsEl = document.getElementById('hudFps');
-        if (hudFpsEl) hudFpsEl.textContent = `${frameCount} FPS`;
+        if (hudFpsEl) {
+          hudFpsEl.textContent = `${frameCount} FPS`;
+          hudFpsEl.style.color = frameCount < 20 ? '#ef4444' : frameCount < 30 ? '#f59e0b' : '#10b981';
+        }
         const hudPolyEl = document.getElementById('hudPoly');
         if (hudPolyEl) hudPolyEl.textContent = `${(tel.polyCount / 1000).toFixed(1)}k Tris`;
         const hudDrawsEl = document.getElementById('hudDraws');
@@ -694,6 +709,35 @@ export const ThreeViewport = () => {
     };
   }, []);
 
+  // Handle GC request from sidebar
+  useEffect(() => {
+    const handleGC = () => {
+      const renderer = rendererRef.current;
+      const scene = sceneRef.current;
+      if (!renderer || !scene) return;
+      const before = renderer.info.memory;
+      const beforeGeo = before.geometries;
+      const beforeTex = before.textures;
+      // Reset renderer internal counters
+      renderer.info.reset();
+      // Traverse and dispose orphaned resources
+      scene.traverse((obj) => {
+        if (obj instanceof THREE.Mesh) {
+          const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+          for (const m of mats) {
+            if (m instanceof THREE.Material && 'wireframe' in m) {
+              (m as THREE.MeshStandardMaterial).wireframe = false;
+            }
+          }
+        }
+      });
+      const after = renderer.info.memory;
+      console.info(`[GC] Before: ${beforeGeo} geometries, ${beforeTex} textures → After: ${after.geometries} geometries, ${after.textures} textures`);
+    };
+    window.addEventListener('engine:gc-request', handleGC);
+    return () => window.removeEventListener('engine:gc-request', handleGC);
+  }, []);
+
   // Sync Biome and Seed changes
   useEffect(() => {
     generateWorld(activeBiome);
@@ -764,6 +808,9 @@ export const ThreeViewport = () => {
           group.add(npcMesh);
         }
       }
+
+      const hudNpcEl = document.getElementById('hudNpcCount');
+      if (hudNpcEl) hudNpcEl.textContent = `${sceneGraph.characters?.length ?? 0} characters`;
     }
   }, [sceneGraph, generatedCode]);
 
@@ -868,6 +915,67 @@ export const ThreeViewport = () => {
     }
   }, [selectedNode]);
 
+  // Live sync material updates from Inspector
+  useEffect(() => {
+    const handleMaterialUpdate = (e: Event) => {
+      const customEvent = e as CustomEvent<{ nodeId?: string; property: string; value: unknown }>;
+      const { nodeId, property, value } = customEvent.detail || {};
+
+      const applyProperty = (obj: THREE.Object3D) => {
+        if (property === 'castShadow') {
+          obj.castShadow = Boolean(value);
+        } else if (property === 'receiveShadow') {
+          obj.receiveShadow = Boolean(value);
+        }
+        if (obj instanceof THREE.Mesh) {
+          const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+          mats.forEach((m) => {
+            if (m instanceof THREE.MeshStandardMaterial) {
+              if (property === 'roughness') m.roughness = Number(value);
+              if (property === 'metalness') m.metalness = Number(value);
+              m.needsUpdate = true;
+            }
+          });
+        }
+      };
+
+      if (nodeId && sceneGraphGroupRef.current) {
+        sceneGraphGroupRef.current.traverse((child) => {
+          if (child.uuid === nodeId || child.userData?.id === nodeId) {
+            applyProperty(child);
+            child.traverse(applyProperty);
+          }
+        });
+      } else if (terrainMeshRef.current) {
+        applyProperty(terrainMeshRef.current);
+      }
+    };
+
+    const handleSmartEdit = (e: Event) => {
+      const customEvent = e as CustomEvent<{ instruction: string }>;
+      const instruction = customEvent.detail?.instruction?.toLowerCase() || '';
+      if (!sceneRef.current) return;
+
+      if (instruction.includes('dark') && instruction.includes('sky')) {
+        sceneRef.current.background = new THREE.Color(0x020308);
+        if (sceneRef.current.fog instanceof THREE.FogExp2) {
+          sceneRef.current.fog.color = new THREE.Color(0x020308);
+        }
+      } else if (instruction.includes('fog')) {
+        if (sceneRef.current.fog instanceof THREE.FogExp2) {
+          sceneRef.current.fog.density = 0.05;
+        }
+      }
+    };
+
+    window.addEventListener('engine:material-update', handleMaterialUpdate);
+    window.addEventListener('engine:smart-edit', handleSmartEdit);
+    return () => {
+      window.removeEventListener('engine:material-update', handleMaterialUpdate);
+      window.removeEventListener('engine:smart-edit', handleSmartEdit);
+    };
+  }, []);
+
   // Key listeners for Walk Mode
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -911,6 +1019,21 @@ export const ThreeViewport = () => {
           }
           break;
         }
+        case 'KeyG': {
+          // Focus the spotlight prompt bar input
+          const promptInput = document.querySelector<HTMLInputElement>('#spotlightInput');
+          if (promptInput) { promptInput.focus(); e.preventDefault(); }
+          break;
+        }
+        case 'KeyF': {
+          // Fly to selected object
+          if (selectedNode && cameraRef.current && controlsRef.current) {
+            const pos = selectedNode.position;
+            cameraRef.current.position.set(pos[0] + 5, pos[1] + 3, pos[2] + 5);
+            controlsRef.current.target.set(pos[0], pos[1], pos[2]);
+          }
+          break;
+        }
         case 'Escape':
           if (useUIStore.getState().cameraMode === 'walk') {
             setCameraMode('orbit');
@@ -946,7 +1069,7 @@ export const ThreeViewport = () => {
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('keyup', onKeyUp);
     };
-  }, [setCameraMode, setActiveNPC]);
+  }, [setCameraMode, setActiveNPC, selectedNode]);
 
   const handleResetCamera = () => {
     if (cameraRef.current && controlsRef.current) {
@@ -970,6 +1093,9 @@ export const ThreeViewport = () => {
     >
       {/* 3D Canvas */}
       <canvas ref={canvasRef} id="threeCanvas" className="w-full h-full block" />
+
+      {/* Generation Loading Overlay */}
+      <GenerationOverlay />
 
       {/* Crosshair for walk mode */}
       {cameraMode === 'walk' && <Crosshair active={false} />}
@@ -1007,6 +1133,11 @@ export const ThreeViewport = () => {
         <div className="px-2.5 py-1 rounded-md bg-black/60 mac-subtle-blur border border-white/10 text-[11px] font-mono text-mac-textMuted flex items-center space-x-2">
           <i className="ph ph-navigation-arrow text-blue-400" />
           <span id="hudCoords" />
+        </div>
+
+        <div className="px-2.5 py-1 rounded-md bg-black/60 mac-subtle-blur border border-white/10 text-[11px] font-mono text-mac-textMuted flex items-center space-x-2">
+          <span>👥</span>
+          <span id="hudNpcCount">0 characters</span>
         </div>
       </div>
 
@@ -1054,8 +1185,12 @@ export const ThreeViewport = () => {
         </div>
       )}
 
+      {/* Smart Edit Bar */}
+      <SmartEditBar />
+
       {/* Spotlight Prompt Bar */}
       <SpotlightPromptBar />
+      <DebugPanel />
 
       {/* Toast notifications */}
       <NotificationToast />

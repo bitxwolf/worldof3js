@@ -77,6 +77,28 @@ export class WorldBuilder {
       this.npcSystem.spawnAll(graph.characters);
     }
 
+    // Step 5.5: Material safety sweep — fix any missing materials / wireframe ghosts
+    const fixedCount = this.sceneManager.sanitiseMaterials();
+    if (fixedCount > 0) {
+      console.warn(`[WorldBuilder] sanitiseMaterials fixed ${fixedCount} objects after build`);
+    }
+
+    // Step 5.6: Deferred scene audit (2s after build)
+    setTimeout(() => {
+      let wireframeCount = 0;
+      this.sceneManager.scene.traverse((obj) => {
+        if (obj instanceof THREE.Mesh) {
+          const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+          for (const m of mats) {
+            if (m instanceof THREE.MeshBasicMaterial || !m) wireframeCount++;
+          }
+        }
+      });
+      if (wireframeCount > 0) {
+        console.error(`[Audit] ${wireframeCount} objects with Basic/missing materials found`);
+      }
+    }, 2000);
+
     // Step 6: Setup Event System
     this.eventSystem = new EventSystem({
       onTeleport: (pos) => this.teleportPlayer(pos),

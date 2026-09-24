@@ -17,6 +17,9 @@ export const NotificationToast = () => {
         } else if (n.type === 'warning') {
           badgeColor = 'bg-amber-900/90 border-amber-500/50 text-amber-100';
           icon = '⚠️';
+        } else if (n.type === 'error') {
+          badgeColor = 'bg-rose-900/90 border-rose-500/50 text-rose-100';
+          icon = '❌';
         }
 
         return (

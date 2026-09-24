@@ -274,7 +274,13 @@ export const RightInspector = () => {
                 max="1"
                 step="0.05"
                 value={tuningParams.roughness}
-                onChange={(e) => setTuningParam('roughness', parseFloat(e.target.value))}
+                onChange={(e) => {
+                  const newValue = parseFloat(e.target.value);
+                  setTuningParam('roughness', newValue);
+                  window.dispatchEvent(new CustomEvent('engine:material-update', {
+                    detail: { nodeId: selectedNode?.id, property: 'roughness', value: newValue }
+                  }));
+                }}
                 className="w-full h-1 bg-white/20 rounded-lg appearance-none cursor-pointer accent-blue-500"
               />
             </div>
@@ -290,7 +296,13 @@ export const RightInspector = () => {
                 max="1"
                 step="0.05"
                 value={tuningParams.metalness}
-                onChange={(e) => setTuningParam('metalness', parseFloat(e.target.value))}
+                onChange={(e) => {
+                  const newValue = parseFloat(e.target.value);
+                  setTuningParam('metalness', newValue);
+                  window.dispatchEvent(new CustomEvent('engine:material-update', {
+                    detail: { nodeId: selectedNode?.id, property: 'metalness', value: newValue }
+                  }));
+                }}
                 className="w-full h-1 bg-white/20 rounded-lg appearance-none cursor-pointer accent-blue-500"
               />
             </div>
@@ -300,7 +312,13 @@ export const RightInspector = () => {
               <input
                 type="checkbox"
                 checked={tuningParams.castShadow}
-                onChange={(e) => setTuningParam('castShadow', e.target.checked)}
+                onChange={(e) => {
+                  const newValue = e.target.checked;
+                  setTuningParam('castShadow', newValue);
+                  window.dispatchEvent(new CustomEvent('engine:material-update', {
+                    detail: { nodeId: selectedNode?.id, property: 'castShadow', value: newValue }
+                  }));
+                }}
                 className="rounded border-white/10 bg-black/40 text-blue-500 accent-blue-500 cursor-pointer"
               />
             </div>

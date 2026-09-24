@@ -149,4 +149,40 @@ export class SceneManager {
   get isDisposed(): boolean {
     return this._disposed;
   }
+
+  /** Expose renderer.info for telemetry (tri count, draw calls, memory). */
+  get rendererInfo(): THREE.WebGLInfo {
+    return this.renderer.info;
+  }
+
+  /**
+   * Scene-wide material safety sweep.
+   * Fixes meshes with undefined/missing materials and forces wireframe OFF
+   * (unless the global wireframe toggle is active).
+   * Call after every executeBuildScene() and NPC spawn to eliminate ghost boxes.
+   */
+  sanitiseMaterials(wireframeOverride = false): number {
+    const fallback = new THREE.MeshStandardMaterial({
+      color: 0x888888, roughness: 0.8, wireframe: false,
+    });
+    let fixed = 0;
+    this.scene.traverse((obj) => {
+      if (obj instanceof THREE.Mesh) {
+        if (!obj.material || (Array.isArray(obj.material) && obj.material.some((m: THREE.Material | null) => !m))) {
+          console.warn(`[SceneManager] Missing material on ${obj.userData?.id ?? obj.uuid} — applying fallback`);
+          obj.material = fallback.clone();
+          fixed++;
+        }
+        // Force wireframe OFF on every mesh unless wireframe view is active
+        const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+        for (const m of mats) {
+          if (m instanceof THREE.Material && 'wireframe' in m) {
+            (m as THREE.MeshStandardMaterial).wireframe = wireframeOverride;
+          }
+        }
+      }
+    });
+    if (fixed > 0) console.warn(`[SceneManager] Fixed ${fixed} missing materials`);
+    return fixed;
+  }
 }

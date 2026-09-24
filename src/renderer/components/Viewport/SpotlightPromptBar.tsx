@@ -143,7 +143,7 @@ export const SpotlightPromptBar = () => {
         <div className="flex items-center space-x-2 px-2">
           <i className="ph ph-sparkle text-blue-400 text-lg" />
           <input
-            id="promptInput"
+            id="spotlightInput"
             type="text"
             value={promptText}
             onChange={(e) => setPromptText(e.target.value)}
@@ -153,9 +153,6 @@ export const SpotlightPromptBar = () => {
           />
 
           <div className="flex items-center space-x-1.5">
-            <span className="text-[10px] font-mono px-2 py-1 rounded bg-white/5 text-mac-textMuted border border-white/10 hidden sm:inline-block">
-              Claude 3.7 SceneGraph
-            </span>
             <button
               type="button"
               id="generatePromptBtn"

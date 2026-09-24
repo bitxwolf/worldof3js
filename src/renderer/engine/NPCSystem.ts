@@ -25,32 +25,62 @@ export class NPCSystem {
   }
 
   spawnAll(characters: Character[]): void {
+    console.info(`[NPCSystem] Spawning ${characters.length} NPCs`);
     for (const char of characters) {
+      console.info(`  → Spawning ${char.name} at [${char.position.join(', ')}]`);
       this.spawnNPC(char);
     }
+    console.info('[NPCSystem] All NPCs spawned');
   }
 
   private spawnNPC(char: Character): void {
-    const group = createDefaultHumanoid();
-    group.position.set(char.position[0], char.position[1], char.position[2]);
-    group.userData = {
-      id: char.id,
-      type: 'npc',
-      name: char.name,
-      interactable: true,
-    };
+    try {
+      const group = createDefaultHumanoid();
+      // Lock Y to ground level — LLM Y values (char.position[1]) are often wrong
+      group.position.set(char.position[0], 0, char.position[2]);
+      group.userData = {
+        id: char.id,
+        type: 'npc',
+        name: char.name,
+        interactable: true,
+        collidable: false,
+      };
 
-    this.scene.add(group);
+      this.scene.add(group);
 
-    this.npcs.push({
-      character: char,
-      group,
-      behavior: char.behavior ?? 'idle',
-      patrolIndex: 0,
-      wanderTarget: null,
-      wanderTimer: 0,
-      bobPhase: Math.random() * Math.PI * 2,
-    });
+      this.npcs.push({
+        character: char,
+        group,
+        behavior: char.behavior ?? 'idle',
+        patrolIndex: 0,
+        wanderTarget: null,
+        wanderTimer: 0,
+        bobPhase: Math.random() * Math.PI * 2,
+      });
+
+      console.info(`[NPCSystem] ✓ Spawned ${char.name}`);
+    } catch (err) {
+      // Emergency fallback — always produces a visible mesh
+      console.error(`[NPCSystem] Critical failure spawning ${char.name}:`, err);
+      const emergency = new THREE.Mesh(
+        new THREE.SphereGeometry(0.5, 8, 8),
+        new THREE.MeshStandardMaterial({ color: 0xff0000, emissive: 0x880000, emissiveIntensity: 0.5 }),
+      );
+      emergency.position.set(char.position[0], 1.0, char.position[2]);
+      emergency.userData = { id: char.id, name: char.name, type: 'npc_error', interactable: true };
+      emergency.castShadow = true;
+      this.scene.add(emergency);
+
+      this.npcs.push({
+        character: char,
+        group: new THREE.Group().add(emergency) as unknown as THREE.Group,
+        behavior: 'idle',
+        patrolIndex: 0,
+        wanderTarget: null,
+        wanderTimer: 0,
+        bobPhase: 0,
+      });
+    }
   }
 
   tick(delta: number, playerPosition: THREE.Vector3): void {
