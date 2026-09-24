@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { PointerLockControls } from 'three/examples/jsm/controls/PointerLockControls.js';
 import { useWorldStore } from '../../store/worldStore';
-import { useUIStore, type BiomeType } from '../../store/uiStore';
+import { useUIStore, type BiomeType, type SceneHierarchyItem } from '../../store/uiStore';
 import { useNPCStore } from '../../store/npcStore';
 import { NotificationToast } from '../HUD/NotificationToast';
 import { SpotlightPromptBar } from './SpotlightPromptBar';
@@ -289,7 +289,7 @@ export const ThreeViewport = () => {
     npcGroup.add(crystal);
 
     npcGroup.userData = {
-      type: 'Entity/HumanoidNPC',
+      type: 'NPCs/HumanoidNPC',
       name: 'Eldrin the Ranger',
       roughness: 0.6,
       metalness: 0.0,
@@ -316,6 +316,100 @@ export const ThreeViewport = () => {
       disposeHierarchy(child);
     }
   };
+
+  // Traverse Three.js scene and update Hierarchy tab (Point 75)
+  const syncSceneHierarchy = useCallback((scene: THREE.Scene) => {
+    const items: SceneHierarchyItem[] = [];
+    const sceneGraphGroup = sceneGraphGroupRef.current;
+
+    scene.traverse((obj) => {
+      if (obj === scene) return;
+      if (obj.name === 'SceneGraphRoot') return;
+      if (obj instanceof THREE.BoxHelper || obj.name.includes('Helper')) return;
+
+      const isDirectSceneChild = obj.parent === scene;
+      const isDirectGroupChild = Boolean(sceneGraphGroup && obj.parent === sceneGraphGroup);
+      const uType = (obj.userData?.type as string) || '';
+      const isLight = (obj as THREE.Light).isLight;
+
+      if (!isDirectSceneChild && !isDirectGroupChild && !uType && !isLight) {
+        return;
+      }
+
+      // Skip internal children of composite groups
+      if (obj.parent && obj.parent !== scene && obj.parent !== sceneGraphGroup) {
+        return;
+      }
+
+      let category = 'Objects';
+      let icon = 'ph-cube';
+
+      const typeLower = uType.toLowerCase();
+      const nameLower = (obj.name || '').toLowerCase();
+
+      if (typeLower.includes('terrain') || nameLower.includes('terrain') || nameLower.includes('ground')) {
+        category = 'Terrain';
+        icon = 'ph-mountains';
+      } else if (
+        typeLower.includes('flora') ||
+        typeLower.includes('alien') ||
+        nameLower.includes('pine') ||
+        nameLower.includes('tree') ||
+        nameLower.includes('mushroom') ||
+        nameLower.includes('foliage')
+      ) {
+        category = 'Flora';
+        icon = 'ph-tree-evergreen';
+      } else if (
+        typeLower.includes('npc') ||
+        typeLower.includes('entity') ||
+        typeLower.includes('character') ||
+        nameLower.includes('npc') ||
+        nameLower.includes('eldrin')
+      ) {
+        category = 'NPCs';
+        icon = 'ph-user';
+      } else if (
+        typeLower.includes('light') ||
+        isLight ||
+        nameLower.includes('sun') ||
+        nameLower.includes('ambient')
+      ) {
+        category = 'Lights';
+        icon = nameLower.includes('sun') ? 'ph-sun' : 'ph-lightbulb';
+      } else if (typeLower.includes('geology') || nameLower.includes('rock')) {
+        category = 'Geology';
+        icon = 'ph-diamonds-four';
+      } else if (
+        typeLower.includes('architecture') ||
+        typeLower.includes('ruin') ||
+        nameLower.includes('pillar') ||
+        nameLower.includes('tower')
+      ) {
+        category = 'Architecture';
+        icon = 'ph-columns';
+      } else if (uType) {
+        category = uType.split('/')[0] || 'Objects';
+      }
+
+      if (!items.some((it) => it.id === obj.uuid)) {
+        items.push({
+          id: obj.uuid,
+          name: obj.name || `${category}_${obj.uuid.slice(0, 4)}`,
+          type: uType || category,
+          category,
+          icon,
+          position: [obj.position.x, obj.position.y, obj.position.z],
+          scale: [obj.scale.x, obj.scale.y, obj.scale.z],
+          roughness: obj.userData?.roughness ?? 0.68,
+          metalness: obj.userData?.metalness ?? 0.1,
+          castShadow: obj.castShadow,
+        });
+      }
+    });
+
+    useUIStore.getState().setSceneHierarchy(items);
+  }, []);
 
   const generateWorld = useCallback(
     (biome: BiomeType) => {
@@ -482,8 +576,10 @@ export const ThreeViewport = () => {
       if (hudPolyEl) hudPolyEl.textContent = `${(Math.round(triangles) / 1000).toFixed(1)}k Tris`;
       const hudDrawsEl = document.getElementById('hudDraws');
       if (hudDrawsEl) hudDrawsEl.textContent = `${geometries} Calls`;
+
+      syncSceneHierarchy(scene);
     },
-    [seed, tuningParams.elevation, tuningParams.density, tuningParams.fogDensity, wireframe, setTelemetry]
+    [seed, tuningParams.elevation, tuningParams.density, tuningParams.fogDensity, wireframe, setTelemetry, syncSceneHierarchy]
   );
 
   // Initialize Three.js Engine once on mount
@@ -534,10 +630,14 @@ export const ThreeViewport = () => {
 
     // 5. Lighting
     const ambientLight = new THREE.AmbientLight(0xdde6ff, 0.45);
+    ambientLight.name = 'Ambient';
+    ambientLight.userData = { type: 'Lights/AmbientLight' };
     scene.add(ambientLight);
     ambientLightRef.current = ambientLight;
 
     const sunLight = new THREE.DirectionalLight(0xfff6e6, 1.25);
+    sunLight.name = 'Sun';
+    sunLight.userData = { type: 'Lights/DirectionalSun' };
     sunLight.position.set(35, 50, 25);
     sunLight.castShadow = shadowsEnabled;
     sunLight.shadow.mapSize.width = 2048;
@@ -567,6 +667,7 @@ export const ThreeViewport = () => {
 
     // 8. Generate initial world
     generateWorld(activeBiome);
+    syncSceneHierarchy(scene);
 
     // 9. Resize observer
     const resizeObserver = new ResizeObserver(() => {
@@ -811,8 +912,9 @@ export const ThreeViewport = () => {
 
       const hudNpcEl = document.getElementById('hudNpcCount');
       if (hudNpcEl) hudNpcEl.textContent = `${sceneGraph.characters?.length ?? 0} characters`;
+      if (sceneRef.current) syncSceneHierarchy(sceneRef.current);
     }
-  }, [sceneGraph, generatedCode]);
+  }, [sceneGraph, generatedCode, syncSceneHierarchy]);
 
   // Sync Wireframe toggle
   useEffect(() => {
@@ -897,20 +999,35 @@ export const ThreeViewport = () => {
     }
   }, [cameraMode, seed, tuningParams.elevation, addIpcLog]);
 
-  // Sync Inspector transform controls to 3D scene
+  // Sync Inspector transform controls to 3D scene & selection box
   useEffect(() => {
-    if (!selectedNode || !sceneGraphGroupRef.current) return;
-    const group = sceneGraphGroupRef.current;
+    if (!selectedNode) {
+      if (selectionBoxRef.current) {
+        selectionBoxRef.current.visible = false;
+      }
+      return;
+    }
+    const scene = sceneRef.current;
+    if (!scene) return;
     let target: THREE.Object3D | null = null;
-    group.traverse((child) => {
-      if (child.uuid === selectedNode.id || child.userData?.id === selectedNode.id) {
+    scene.traverse((child) => {
+      if (
+        child.uuid === selectedNode.id ||
+        child.userData?.id === selectedNode.id ||
+        (child.name && child.name === selectedNode.name)
+      ) {
         target = child;
       }
     });
     if (target) {
-      (target as THREE.Object3D).position.set(selectedNode.position[0], selectedNode.position[1], selectedNode.position[2]);
-      if (selectionBoxRef.current && selectionBoxRef.current.visible) {
-        selectionBoxRef.current.setFromObject(target as THREE.Object3D);
+      target.position.set(selectedNode.position[0], selectedNode.position[1], selectedNode.position[2]);
+      if (selectionBoxRef.current) {
+        if ((target as THREE.Mesh).geometry || target.children.length > 0) {
+          selectionBoxRef.current.setFromObject(target);
+          selectionBoxRef.current.visible = true;
+        } else {
+          selectionBoxRef.current.visible = false;
+        }
       }
     }
   }, [selectedNode]);
@@ -974,6 +1091,41 @@ export const ThreeViewport = () => {
       window.removeEventListener('engine:material-update', handleMaterialUpdate);
       window.removeEventListener('engine:smart-edit', handleSmartEdit);
     };
+  }, []);
+
+  // GLTF Export event listener (Point 79)
+  useEffect(() => {
+    // run once on mount — event listener for GLTF export
+    const handleExport = async () => {
+      const scene = sceneRef.current;
+      if (!scene) return;
+      try {
+        const { GLTFExporter } = await import('three/examples/jsm/exporters/GLTFExporter.js');
+        const exporter = new GLTFExporter();
+        exporter.parse(
+          scene,
+          (gltf) => {
+            const output = JSON.stringify(gltf, null, 2);
+            const blob = new Blob([output], { type: 'application/json' });
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.download = `world_${Date.now()}.gltf`;
+            link.click();
+            URL.revokeObjectURL(link.href);
+            useUIStore.getState().showNotification('World exported as GLTF!', 3000, 'success');
+          },
+          (err) => {
+            console.error('[Export] GLTF export failed:', err);
+            useUIStore.getState().showNotification('GLTF export failed', 3000, 'error');
+          },
+          { binary: false }
+        );
+      } catch (err) {
+        console.error('[Export] GLTFExporter not available:', err);
+      }
+    };
+    window.addEventListener('engine:export-gltf', handleExport);
+    return () => window.removeEventListener('engine:export-gltf', handleExport);
   }, []);
 
   // Key listeners for Walk Mode

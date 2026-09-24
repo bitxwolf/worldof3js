@@ -42,7 +42,7 @@ export const SmartEditBar = () => {
       setEditText('');
     } catch (err) {
       setLastResult(`Failed: ${String(err)}`);
-      showNotification('Edit failed — check console', 3000, 'warning');
+      showNotification('Edit failed — check console', 3000, 'error');
     } finally {
       setIsApplying(false);
     }

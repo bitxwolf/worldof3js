@@ -1,5 +1,4 @@
 import { useUIStore } from '../../store/uiStore';
-import { useWorldStore } from '../../store/worldStore';
 
 export const StudioHeader = () => {
   const {
@@ -13,13 +12,10 @@ export const StudioHeader = () => {
     toggleWireframe,
     seed,
     reseed,
-    showNotification,
     openSettings,
     openLibrary,
     addIpcLog,
   } = useUIStore();
-
-  const { sceneGraph } = useWorldStore();
 
   const handleExportGLTF = () => {
     addIpcLog('[EXPORT:GLTF] Packaging meshes to GLTF...', 'build');
