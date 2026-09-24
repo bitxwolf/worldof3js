@@ -912,9 +912,8 @@ export const ThreeViewport = () => {
 
       const hudNpcEl = document.getElementById('hudNpcCount');
       if (hudNpcEl) hudNpcEl.textContent = `${sceneGraph.characters?.length ?? 0} characters`;
-      if (sceneRef.current) syncSceneHierarchy(sceneRef.current);
     }
-  }, [sceneGraph, generatedCode, syncSceneHierarchy]);
+  }, [sceneGraph, generatedCode]);
 
   // Sync Wireframe toggle
   useEffect(() => {
@@ -999,35 +998,21 @@ export const ThreeViewport = () => {
     }
   }, [cameraMode, seed, tuningParams.elevation, addIpcLog]);
 
-  // Sync Inspector transform controls to 3D scene & selection box
+  // Sync Inspector transform controls to 3D scene
   useEffect(() => {
-    if (!selectedNode) {
-      if (selectionBoxRef.current) {
-        selectionBoxRef.current.visible = false;
-      }
-      return;
-    }
-    const scene = sceneRef.current;
-    if (!scene) return;
-    let target: THREE.Object3D | null = null;
-    scene.traverse((child) => {
-      if (
-        child.uuid === selectedNode.id ||
-        child.userData?.id === selectedNode.id ||
-        (child.name && child.name === selectedNode.name)
-      ) {
+    if (!selectedNode || !sceneGraphGroupRef.current) return;
+    const group = sceneGraphGroupRef.current;
+    let target: THREE.Object3D | undefined = undefined;
+    group.traverse((child) => {
+      if (child.uuid === selectedNode.id || child.userData?.id === selectedNode.id) {
         target = child;
       }
     });
-    if (target) {
-      target.position.set(selectedNode.position[0], selectedNode.position[1], selectedNode.position[2]);
-      if (selectionBoxRef.current) {
-        if ((target as THREE.Mesh).geometry || target.children.length > 0) {
-          selectionBoxRef.current.setFromObject(target);
-          selectionBoxRef.current.visible = true;
-        } else {
-          selectionBoxRef.current.visible = false;
-        }
+    const selectedObj = target as THREE.Object3D | undefined;
+    if (selectedObj) {
+      selectedObj.position.set(selectedNode.position[0], selectedNode.position[1], selectedNode.position[2]);
+      if (selectionBoxRef.current && selectionBoxRef.current.visible) {
+        selectionBoxRef.current.setFromObject(selectedObj);
       }
     }
   }, [selectedNode]);
@@ -1091,41 +1076,6 @@ export const ThreeViewport = () => {
       window.removeEventListener('engine:material-update', handleMaterialUpdate);
       window.removeEventListener('engine:smart-edit', handleSmartEdit);
     };
-  }, []);
-
-  // GLTF Export event listener (Point 79)
-  useEffect(() => {
-    // run once on mount — event listener for GLTF export
-    const handleExport = async () => {
-      const scene = sceneRef.current;
-      if (!scene) return;
-      try {
-        const { GLTFExporter } = await import('three/examples/jsm/exporters/GLTFExporter.js');
-        const exporter = new GLTFExporter();
-        exporter.parse(
-          scene,
-          (gltf) => {
-            const output = JSON.stringify(gltf, null, 2);
-            const blob = new Blob([output], { type: 'application/json' });
-            const link = document.createElement('a');
-            link.href = URL.createObjectURL(blob);
-            link.download = `world_${Date.now()}.gltf`;
-            link.click();
-            URL.revokeObjectURL(link.href);
-            useUIStore.getState().showNotification('World exported as GLTF!', 3000, 'success');
-          },
-          (err) => {
-            console.error('[Export] GLTF export failed:', err);
-            useUIStore.getState().showNotification('GLTF export failed', 3000, 'error');
-          },
-          { binary: false }
-        );
-      } catch (err) {
-        console.error('[Export] GLTFExporter not available:', err);
-      }
-    };
-    window.addEventListener('engine:export-gltf', handleExport);
-    return () => window.removeEventListener('engine:export-gltf', handleExport);
   }, []);
 
   // Key listeners for Walk Mode

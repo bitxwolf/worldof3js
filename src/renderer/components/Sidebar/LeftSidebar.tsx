@@ -1,5 +1,5 @@
-import { useUIStore, type BiomeType } from '../../store/uiStore';
-import { useWorldStore } from '../../store/worldStore';
+import { useState, useMemo } from 'react';
+import { useUIStore, type BiomeType, type SceneHierarchyItem } from '../../store/uiStore';
 
 interface BiomeDefinition {
   id: BiomeType;
@@ -76,12 +76,13 @@ export const LeftSidebar = () => {
     setTuningParam,
     selectedNode,
     setSelectedNode,
+    sceneHierarchy,
+    setRightInspectorOpen,
+    setRightInspectorTab,
     telemetry,
     addIpcLog,
     showNotification,
   } = useUIStore();
-
-  const { sceneGraph } = useWorldStore();
 
   const handleGC = () => {
     addIpcLog('[GC:TRIGGER] Sweeping unreferenced textures & buffer attributes...', 'info');
@@ -93,39 +94,72 @@ export const LeftSidebar = () => {
     }, 300);
   };
 
-  // Node items: fallback or based on current scene graph
-  const defaultNodes = [
-    { id: 'node_terrain', name: 'Terrain_Heightmap_Surface', icon: 'ph-mountains', tag: 'Terrain' },
-    { id: 'node_pine_1', name: 'Procedural_Pine_4821', icon: 'ph-tree-evergreen', tag: 'Flora' },
-    { id: 'node_pine_2', name: 'Procedural_Pine_9104', icon: 'ph-tree-evergreen', tag: 'Flora' },
-    { id: 'node_rock_1', name: 'Rock_Cluster_3819', icon: 'ph-diamonds-four', tag: 'Geology' },
-    { id: 'node_npc_1', name: 'NPC_Eldrin_The_Ranger', icon: 'ph-user', tag: 'Entity' },
-    { id: 'node_sun', name: 'DirectionalLight_Sun', icon: 'ph-sun', tag: 'Lighting' },
-  ];
+  const [sceneOpen, setSceneOpen] = useState(true);
+  const [expandedCategories, setExpandedCategories] = useState<Record<string, boolean>>({
+    Terrain: true,
+    Flora: true,
+    NPCs: true,
+    Lights: true,
+    Geology: true,
+    Architecture: true,
+  });
+  const [hierarchyFilter, setHierarchyFilter] = useState('');
 
-  const nodes = sceneGraph?.objects?.length
-    ? [
-        { id: 'node_terrain', name: 'Terrain_Heightmap_Surface', icon: 'ph-mountains', tag: 'Terrain' },
-        ...sceneGraph.characters.map((c) => ({
-          id: c.id,
-          name: `NPC_${c.name.replace(/\s+/g, '_')}`,
-          icon: 'ph-user',
-          tag: 'Entity',
-        })),
-        ...sceneGraph.objects.map((o) => ({
-          id: o.id,
-          name: o.name || o.type,
-          icon: o.type.includes('tree')
-            ? 'ph-tree-evergreen'
-            : o.type.includes('rock')
-            ? 'ph-diamonds-four'
-            : o.type.includes('pillar')
-            ? 'ph-columns'
-            : 'ph-cube',
-          tag: o.type.split('/')[0] || 'Object',
-        })),
-      ]
-    : defaultNodes;
+  const toggleCategory = (cat: string) => {
+    setExpandedCategories((prev) => ({
+      ...prev,
+      [cat]: prev[cat] !== undefined ? !prev[cat] : false,
+    }));
+  };
+
+  const handleSelectItem = (item: SceneHierarchyItem) => {
+    setSelectedNode({
+      id: item.id,
+      name: item.name,
+      type: item.type,
+      position: item.position,
+      scale: item.scale,
+      roughness: item.roughness ?? 0.68,
+      metalness: item.metalness ?? 0.1,
+      castShadow: item.castShadow ?? true,
+    });
+    setRightInspectorTab('inspector');
+    setRightInspectorOpen(true);
+    addIpcLog(`[SELECTION] Focused node '${item.name}' (${item.type}) via Hierarchy`, 'selection');
+  };
+
+  const filteredHierarchy = useMemo(() => {
+    if (!hierarchyFilter.trim()) return sceneHierarchy;
+    const q = hierarchyFilter.toLowerCase();
+    return sceneHierarchy.filter(
+      (item) =>
+        item.name.toLowerCase().includes(q) ||
+        item.category.toLowerCase().includes(q) ||
+        item.type.toLowerCase().includes(q)
+    );
+  }, [sceneHierarchy, hierarchyFilter]);
+
+  const groupedHierarchy = useMemo(() => {
+    const groups: Record<string, SceneHierarchyItem[]> = {};
+    for (const item of filteredHierarchy) {
+      const cat = item.category || 'Objects';
+      if (!groups[cat]) groups[cat] = [];
+      groups[cat].push(item);
+    }
+    const order = ['Terrain', 'Flora', 'NPCs', 'Lights', 'Geology', 'Architecture'];
+    const sortedEntries: [string, SceneHierarchyItem[]][] = [];
+    for (const cat of order) {
+      if (groups[cat] && groups[cat].length > 0) {
+        sortedEntries.push([cat, groups[cat]]);
+      }
+    }
+    for (const cat of Object.keys(groups)) {
+      if (!order.includes(cat) && groups[cat].length > 0) {
+        sortedEntries.push([cat, groups[cat]]);
+      }
+    }
+    return sortedEntries;
+  }, [filteredHierarchy]);
 
   return (
     <aside
@@ -177,55 +211,120 @@ export const LeftSidebar = () => {
       </div>
 
       {/* ── Hierarchy Tab Content ── */}
+      {/* ── Hierarchy Tab Content (Point 75) ── */}
       {leftSidebarTab === 'hierarchy' && (
-        <div className="flex-1 overflow-y-auto custom-scrollbar p-2 space-y-1">
-          <div className="text-[10px] uppercase font-bold tracking-wider text-mac-textMuted/70 px-2 py-1 flex justify-between items-center">
-            <span>Scene Graph</span>
-            <span className="font-mono text-[9px] bg-white/5 px-1 rounded">
-              {nodes.length} Nodes
+        <div className="flex-1 overflow-y-auto custom-scrollbar p-2 space-y-2">
+          {/* Header & Item Count */}
+          <div className="text-[10px] uppercase font-bold tracking-wider text-mac-textMuted/70 px-1 py-0.5 flex justify-between items-center">
+            <span>Hierarchy</span>
+            <span className="font-mono text-[9px] bg-white/5 px-1.5 py-0.5 rounded text-mac-textMuted">
+              {filteredHierarchy.length} Objects
             </span>
           </div>
 
-          <div className="space-y-0.5 text-xs">
-            {nodes.map((n) => {
-              const isSelected = selectedNode?.name === n.name || selectedNode?.id === n.id;
-              return (
-                <div
-                  key={n.id}
-                  onClick={() =>
-                    setSelectedNode({
-                      id: n.id,
-                      name: n.name,
-                      type: n.tag,
-                      position: [4.2, 0.0, -6.5],
-                      scale: [1.0, 1.25, 1.0],
-                      roughness: 0.68,
-                      metalness: 0.1,
-                      castShadow: true,
-                    })
-                  }
-                  className={`flex items-center justify-between px-2 py-1.5 rounded cursor-pointer transition group ${
-                    isSelected
-                      ? 'bg-blue-500/20 border border-blue-500/40 text-white'
-                      : 'hover:bg-white/10 text-mac-text border border-transparent'
-                  }`}
-                >
-                  <div className="flex items-center space-x-2 truncate">
-                    <i
-                      className={`ph ${n.icon} ${
-                        isSelected ? 'text-blue-400' : 'text-mac-textMuted group-hover:text-blue-400'
-                      } text-sm`}
-                    />
-                    <span className="truncate text-[11px] font-medium">{n.name}</span>
-                  </div>
-                  <span className="text-[9px] font-mono text-mac-textMuted/60">{n.tag}</span>
-                </div>
-              );
-            })}
+          {/* Search/Filter Bar */}
+          <div className="relative">
+            <i className="ph ph-magnifying-glass absolute left-2 top-1/2 -translate-y-1/2 text-mac-textMuted text-xs pointer-events-none" />
+            <input
+              type="text"
+              placeholder="Filter scene objects..."
+              value={hierarchyFilter}
+              onChange={(e) => setHierarchyFilter(e.target.value)}
+              className="w-full bg-black/30 border border-white/10 rounded-md pl-6 pr-6 py-1 text-xs text-white placeholder-mac-textMuted/50 focus:outline-none focus:border-blue-500/50"
+            />
+            {hierarchyFilter && (
+              <button
+                type="button"
+                onClick={() => setHierarchyFilter('')}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-mac-textMuted hover:text-white"
+              >
+                <i className="ph ph-x text-xs" />
+              </button>
+            )}
           </div>
 
-          <div className="pt-3 border-t border-white/5 mt-3">
-            <div className="text-[10px] uppercase font-bold tracking-wider text-mac-textMuted/70 px-2 py-1">
+          {/* Tree View (Organised by Type) */}
+          <div className="space-y-1 text-xs select-none">
+            {/* ▾ Scene root */}
+            <div>
+              <div
+                onClick={() => setSceneOpen(!sceneOpen)}
+                className="flex items-center space-x-1.5 px-1.5 py-1 rounded hover:bg-white/5 cursor-pointer text-white font-medium text-xs transition"
+              >
+                <i className={`ph ${sceneOpen ? 'ph-caret-down' : 'ph-caret-right'} text-[10px] text-mac-textMuted`} />
+                <i className="ph ph-cube text-blue-400 text-sm" />
+                <span>Scene</span>
+                <span className="text-[10px] text-mac-textMuted/60 font-mono">({filteredHierarchy.length})</span>
+              </div>
+
+              {sceneOpen && (
+                <div className="pl-3 space-y-1 mt-0.5 border-l border-white/5 ml-2.5">
+                  {groupedHierarchy.map(([category, items]: [string, SceneHierarchyItem[]]) => {
+                    const isExpanded = expandedCategories[category] ?? true;
+                    let catIcon = 'ph-folder';
+                    if (category === 'Terrain') catIcon = 'ph-mountains';
+                    else if (category === 'Flora') catIcon = 'ph-tree-evergreen';
+                    else if (category === 'NPCs') catIcon = 'ph-users';
+                    else if (category === 'Lights') catIcon = 'ph-sun';
+                    else if (category === 'Geology') catIcon = 'ph-diamonds-four';
+                    else if (category === 'Architecture') catIcon = 'ph-columns';
+
+                    return (
+                      <div key={category} className="space-y-0.5">
+                        {/* ▾ Category Group Header */}
+                        <div
+                          onClick={() => toggleCategory(category)}
+                          className="flex items-center justify-between px-1.5 py-1 rounded hover:bg-white/5 cursor-pointer text-mac-textMuted hover:text-white transition group"
+                        >
+                          <div className="flex items-center space-x-1.5 truncate">
+                            <i className={`ph ${isExpanded ? 'ph-caret-down' : 'ph-caret-right'} text-[10px]`} />
+                            <i className={`ph ${catIcon} text-xs text-mac-textMuted group-hover:text-blue-400`} />
+                            <span className="text-[11px] font-medium text-white/90">{category}</span>
+                            <span className="text-[10px] text-mac-textMuted/60 font-mono">({items.length})</span>
+                          </div>
+                        </div>
+
+                        {/* Items under Category */}
+                        {isExpanded && (
+                          <div className="pl-3 space-y-0.5 border-l border-white/5 ml-2">
+                            {items.map((item: SceneHierarchyItem) => {
+                              const isSelected = selectedNode?.id === item.id || selectedNode?.name === item.name;
+                              return (
+                                <div
+                                  key={item.id}
+                                  onClick={() => handleSelectItem(item)}
+                                  className={`flex items-center justify-between px-2 py-1 rounded cursor-pointer transition group ${
+                                    isSelected
+                                      ? 'bg-blue-500/20 border border-blue-500/40 text-white'
+                                      : 'hover:bg-white/10 text-mac-text border border-transparent'
+                                  }`}
+                                >
+                                  <div className="flex items-center space-x-1.5 truncate">
+                                    <i
+                                      className={`ph ${item.icon} ${
+                                        isSelected ? 'text-blue-400' : 'text-mac-textMuted group-hover:text-blue-400'
+                                      } text-xs`}
+                                    />
+                                    <span className="truncate text-[11px] font-medium">{item.name}</span>
+                                  </div>
+                                  <span className="text-[8px] font-mono text-mac-textMuted/50 shrink-0 ml-1">
+                                    {item.type.split('/')[1] || item.category}
+                                  </span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="pt-2 border-t border-white/5 mt-2">
+            <div className="text-[10px] uppercase font-bold tracking-wider text-mac-textMuted/70 px-1 py-1">
               Collision & Physics
             </div>
             <div className="px-2 py-1.5 rounded bg-black/20 border border-white/5 flex items-center justify-between text-xs text-mac-textMuted">
