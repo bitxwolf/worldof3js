@@ -21,24 +21,10 @@ export const StudioHeader = () => {
 
   const { sceneGraph } = useWorldStore();
 
-  const handleExport = async () => {
-    addIpcLog('[EXPORT:GLTF] Packaging meshes to binary .glb / HTML bundle...', 'build');
-    try {
-      if (window.electronAPI?.exportHtml && sceneGraph) {
-        const res = await window.electronAPI.exportHtml(sceneGraph);
-        if (res.success && res.data) {
-          addIpcLog(`[EXPORT:DONE] Scene exported successfully to: ${res.data}`, 'success');
-          showNotification('World exported successfully!', 3500, 'success');
-          return;
-        }
-      }
-      setTimeout(() => {
-        addIpcLog('[EXPORT:DONE] Scene exported successfully (18.4MB).', 'success');
-        showNotification('Scene exported to GLTF / Bundle.', 3000, 'success');
-      }, 500);
-    } catch (err: unknown) {
-      addIpcLog(`[EXPORT:ERROR] Export failed: ${String(err)}`, 'error');
-    }
+  const handleExportGLTF = () => {
+    addIpcLog('[EXPORT:GLTF] Packaging meshes to GLTF...', 'build');
+    // Dispatch a custom event that ThreeViewport can handle (since it has the scene ref)
+    window.dispatchEvent(new CustomEvent('engine:export-gltf'));
   };
 
   return (
@@ -136,7 +122,7 @@ export const StudioHeader = () => {
 
         <button
           type="button"
-          onClick={handleExport}
+          onClick={handleExportGLTF}
           title="Export GLTF or HTML Bundle"
           className="px-2.5 py-1 rounded-md bg-blue-600 hover:bg-blue-500 text-xs font-medium text-white flex items-center space-x-1 transition shadow-sm active:scale-95"
         >
