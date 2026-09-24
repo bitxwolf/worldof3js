@@ -1,0 +1,163 @@
+{
+  "name": "Enchanted Forest Clearing",
+  "timestamp": 1774288000000,
+  "playerPosition": [0, 1.7, 8],
+  "flags": {
+    "gate_unlocked": false
+  },
+  "sceneGraph": {
+    "version": "1.0",
+    "world": {
+      "name": "Enchanted Forest Clearing",
+      "description": "A mystical twilight glade surrounded by ancient glowing trees. A witch named Mira tends a cauldron near a locked overgrown gate.",
+      "biome": "forest",
+      "timeOfDay": "dusk",
+      "weather": "fog",
+      "scale": "medium"
+    },
+    "player": {
+      "startPosition": [0, 1.7, 8],
+      "movementSpeed": 4.0,
+      "jumpHeight": 1.5
+    },
+    "zones": [
+      {
+        "id": "clearing",
+        "name": "Central Clearing",
+        "bounds": { "center": [0, 0, 0], "radius": 15 },
+        "description": "A peaceful clearing surrounded by dense canopy."
+      }
+    ],
+    "characters": [
+      {
+        "id": "witch_mira",
+        "name": "Mira the Herbalist",
+        "description": "A solitary herbalist knowledgeable in ancient flora and forgotten secrets.",
+        "personality": "Mysterious, cryptic, yet gentle and observant.",
+        "secrets": ["The locked gate leads to the moonlit spring."],
+        "knowledge": ["Can make tea from glowing mushrooms."],
+        "position": [-3, 0, 1],
+        "behavior": "idle",
+        "dialogueSeed": "Greetings, traveller. Few find their way past the mist into my grove."
+      },
+      {
+        "id": "grove_keeper",
+        "name": "Bramble",
+        "description": "A short wood-golem pacing along the perimeter path.",
+        "personality": "Vigilant and cautious.",
+        "secrets": ["Guards the mushroom patch."],
+        "knowledge": ["Knows every root in the clearing."],
+        "position": [4, 0, 2],
+        "behavior": "patrol",
+        "patrolPath": [
+          [4, 0, 2],
+          [4, 0, -3],
+          [1, 0, -3],
+          [1, 0, 2]
+        ],
+        "dialogueSeed": "Keep your boots on the moss, mortal. The roots are sleeping."
+      }
+    ],
+    "objects": [
+      {
+        "id": "glowing_mushroom",
+        "name": "Glowing Mushroom",
+        "type": "item",
+        "position": [-1.5, 0.4, 2],
+        "collidable": false,
+        "interactable": true,
+        "pickable": true
+      },
+      {
+        "id": "witch_hut",
+        "name": "Herbalist Hut",
+        "type": "structure",
+        "position": [-5, 0, -2],
+        "scale": [3, 4, 3],
+        "collidable": true,
+        "interactable": true
+      },
+      {
+        "id": "ancient_gate",
+        "name": "Iron Overgrown Gate",
+        "type": "building",
+        "position": [0, 0, -6],
+        "scale": [2, 3, 0.5],
+        "collidable": true,
+        "interactable": true
+      },
+      {
+        "id": "pine_tree_1",
+        "name": "Ancient Pine",
+        "type": "foliage",
+        "position": [-4, 0, 6],
+        "collidable": true
+      },
+      {
+        "id": "pine_tree_2",
+        "name": "Ancient Pine",
+        "type": "foliage",
+        "position": [5, 0, 6],
+        "collidable": true
+      }
+    ],
+    "lights": [
+      {
+        "id": "ambient",
+        "type": "ambient",
+        "color": "#332244",
+        "intensity": 0.4,
+        "castShadow": false
+      },
+      {
+        "id": "dusk_sun",
+        "type": "directional",
+        "color": "#ff8844",
+        "intensity": 0.8,
+        "position": [-30, 20, 20],
+        "castShadow": true
+      }
+    ],
+    "events": [
+      {
+        "id": "gate_proximity_hint",
+        "type": "proximity",
+        "target": "ancient_gate",
+        "range": 3.5,
+        "action": {
+          "type": "show_text",
+          "payload": {
+            "text": "The iron gate is bound by thick vines. It requires a Glowing Mushroom offering to open."
+          }
+        }
+      },
+      {
+        "id": "unlock_gate",
+        "type": "item_use",
+        "target": "ancient_gate",
+        "requiredItem": "glowing_mushroom",
+        "action": {
+          "type": "unlock",
+          "payload": {
+            "targetId": "ancient_gate",
+            "text": "The vines recede and the ancient gate swings open!"
+          }
+        }
+      }
+    ],
+    "skybox": {
+      "type": "gradient",
+      "topColor": "#1a0a2e",
+      "bottomColor": "#2a1a3e"
+    },
+    "atmosphere": {
+      "fogDensity": 0.02,
+      "fogColor": "#2a1a3e",
+      "ambientIntensity": 0.45,
+      "sunColor": "#ff8844"
+    },
+    "flags": {
+      "gate_unlocked": false
+    }
+  }
+}

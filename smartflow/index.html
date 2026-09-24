@@ -1,0 +1,629 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SmartFlow 3D World - 10s Cinematic & Interactive Experience</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background-color: #030712;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      color: #f3f4f6;
+    }
+    #canvas-container {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 1;
+    }
+    canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+    }
+
+    /* Crosshair */
+    #crosshair {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 10px;
+      height: 10px;
+      pointer-events: none;
+      z-index: 20;
+      opacity: 0;
+      transition: opacity 0.3s ease;
+    }
+    #crosshair::before, #crosshair::after {
+      content: '';
+      position: absolute;
+      background: rgba(0, 240, 255, 0.7);
+      box-shadow: 0 0 6px rgba(0, 240, 255, 0.9);
+    }
+    #crosshair::before {
+      top: 4px;
+      left: -6px;
+      width: 22px;
+      height: 2px;
+    }
+    #crosshair::after {
+      top: -6px;
+      left: 4px;
+      width: 2px;
+      height: 22px;
+    }
+    .crosshair-visible #crosshair {
+      opacity: 1;
+    }
+
+    /* 10-Second Cinematic Overlay */
+    #cinematic-hud {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 30;
+      pointer-events: none;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      padding: 32px;
+      transition: opacity 0.8s ease, transform 0.8s ease;
+    }
+    #cinematic-hud.fade-out {
+      opacity: 0;
+      transform: scale(1.03);
+      pointer-events: none;
+    }
+
+    .hud-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+    }
+    .brand-badge {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      background: rgba(15, 23, 42, 0.75);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(0, 240, 255, 0.3);
+      border-radius: 12px;
+      padding: 10px 18px;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), 0 0 15px rgba(0, 240, 255, 0.2);
+    }
+    .brand-icon {
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      background: #00f0ff;
+      box-shadow: 0 0 10px #00f0ff, 0 0 20px #ff0077;
+      animation: pulseGlow 1.8s infinite alternate;
+    }
+    @keyframes pulseGlow {
+      0% { transform: scale(0.9); opacity: 0.8; }
+      100% { transform: scale(1.2); opacity: 1; box-shadow: 0 0 15px #00f0ff, 0 0 25px #00f0ff; }
+    }
+    .brand-title {
+      font-size: 15px;
+      font-weight: 700;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      background: linear-gradient(90deg, #00f0ff, #ff0077);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .brand-sub {
+      font-size: 11px;
+      color: #94a3b8;
+      letter-spacing: 1px;
+    }
+
+    /* 10s Timer Widget */
+    .timer-card {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      background: rgba(15, 23, 42, 0.8);
+      backdrop-filter: blur(16px);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 16px;
+      padding: 14px 24px;
+      box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6), 0 0 20px rgba(0, 240, 255, 0.25);
+    }
+    .timer-ring-box {
+      position: relative;
+      width: 80px;
+      height: 80px;
+    }
+    .timer-svg {
+      transform: rotate(-90deg);
+      width: 100%;
+      height: 100%;
+    }
+    .timer-circle-bg {
+      stroke: rgba(255, 255, 255, 0.1);
+      stroke-width: 6;
+      fill: none;
+    }
+    .timer-circle-progress {
+      stroke: #00f0ff;
+      stroke-width: 6;
+      stroke-linecap: round;
+      fill: none;
+      stroke-dasharray: 226;
+      stroke-dashoffset: 0;
+      transition: stroke-dashoffset 0.1s linear, stroke 0.3s ease;
+      filter: drop-shadow(0 0 6px #00f0ff);
+    }
+    .timer-label {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      font-size: 19px;
+      font-weight: 800;
+      letter-spacing: 0.5px;
+      color: #ffffff;
+      font-variant-numeric: tabular-nums;
+    }
+    .cinematic-phase-badge {
+      margin-top: 8px;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 1.5px;
+      color: #38bdf8;
+    }
+
+    /* Bottom Cinematic Strip */
+    .hud-bottom {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 16px;
+    }
+    .timeline-container {
+      width: min(700px, 90vw);
+      background: rgba(15, 23, 42, 0.7);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 12px;
+      padding: 12px 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .timeline-bar-bg {
+      width: 100%;
+      height: 6px;
+      background: rgba(255, 255, 255, 0.15);
+      border-radius: 3px;
+      overflow: hidden;
+      position: relative;
+    }
+    .timeline-bar-fill {
+      height: 100%;
+      width: 100%;
+      background: linear-gradient(90deg, #00f0ff, #ff0077, #f59e0b);
+      box-shadow: 0 0 10px #00f0ff;
+      border-radius: 3px;
+      transition: width 0.1s linear;
+    }
+    .timeline-milestones {
+      display: flex;
+      justify-content: space-between;
+      font-size: 11px;
+      color: #94a3b8;
+      font-weight: 500;
+    }
+    .timeline-milestones span.active {
+      color: #00f0ff;
+      font-weight: 700;
+      text-shadow: 0 0 8px rgba(0, 240, 255, 0.6);
+    }
+
+    /* Interactive Buttons */
+    .btn-skip {
+      pointer-events: auto;
+      background: linear-gradient(135deg, rgba(0, 240, 255, 0.25), rgba(255, 0, 119, 0.25));
+      border: 1px solid rgba(0, 240, 255, 0.6);
+      color: #ffffff;
+      padding: 12px 28px;
+      font-size: 14px;
+      font-weight: 700;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      border-radius: 30px;
+      cursor: pointer;
+      backdrop-filter: blur(8px);
+      box-shadow: 0 8px 25px rgba(0, 240, 255, 0.3), inset 0 0 10px rgba(255, 255, 255, 0.2);
+      transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .btn-skip:hover {
+      transform: translateY(-2px) scale(1.03);
+      border-color: #00f0ff;
+      box-shadow: 0 12px 35px rgba(0, 240, 255, 0.5), inset 0 0 15px rgba(255, 255, 255, 0.4);
+    }
+    .btn-skip:active {
+      transform: translateY(1px) scale(0.98);
+    }
+
+    /* Interactive Exploration HUD */
+    #interactive-hud {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 25;
+      pointer-events: none;
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      opacity: 0;
+      transition: opacity 0.8s ease;
+    }
+    #interactive-hud.active {
+      opacity: 1;
+    }
+
+    .interactive-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+    }
+    .status-pill {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      background: rgba(15, 23, 42, 0.8);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(0, 240, 255, 0.35);
+      border-radius: 24px;
+      padding: 8px 18px;
+      font-size: 13px;
+      font-weight: 600;
+      color: #e2e8f0;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+    }
+    .live-dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      background: #10b981;
+      box-shadow: 0 0 10px #10b981;
+      animation: blinkDot 1.4s infinite ease-in-out;
+    }
+    @keyframes blinkDot {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.4; transform: scale(0.85); }
+    }
+
+    /* Control Panel Drawer */
+    .controls-card {
+      pointer-events: auto;
+      background: rgba(15, 23, 42, 0.85);
+      backdrop-filter: blur(20px);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 16px;
+      padding: 20px;
+      width: 320px;
+      box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6), 0 0 25px rgba(0, 240, 255, 0.15);
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .panel-title {
+      font-size: 14px;
+      font-weight: 700;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      color: #38bdf8;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .slider-group {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .slider-label {
+      display: flex;
+      justify-content: space-between;
+      font-size: 12px;
+      color: #94a3b8;
+      font-weight: 500;
+    }
+    .slider-label span:last-child {
+      color: #00f0ff;
+      font-weight: 700;
+    }
+    input[type="range"] {
+      -webkit-appearance: none;
+      width: 100%;
+      height: 6px;
+      background: rgba(255, 255, 255, 0.15);
+      border-radius: 3px;
+      outline: none;
+    }
+    input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: #00f0ff;
+      cursor: pointer;
+      box-shadow: 0 0 8px #00f0ff;
+      transition: transform 0.1s;
+    }
+    input[type="range"]::-webkit-slider-thumb:hover {
+      transform: scale(1.25);
+    }
+
+    /* Palette chips */
+    .palette-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 6px;
+    }
+    .palette-btn {
+      padding: 8px 4px;
+      font-size: 10px;
+      font-weight: 700;
+      text-align: center;
+      border-radius: 8px;
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      background: rgba(255, 255, 255, 0.05);
+      color: #cbd5e1;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .palette-btn.active {
+      border-color: #00f0ff;
+      background: rgba(0, 240, 255, 0.2);
+      color: #ffffff;
+      box-shadow: 0 0 10px rgba(0, 240, 255, 0.4);
+    }
+
+    /* Action buttons in panel */
+    .panel-btn-row {
+      display: flex;
+      gap: 8px;
+    }
+    .action-btn {
+      flex: 1;
+      padding: 9px 12px;
+      font-size: 12px;
+      font-weight: 700;
+      border-radius: 8px;
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      background: rgba(255, 255, 255, 0.08);
+      color: #e2e8f0;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      transition: all 0.2s;
+    }
+    .action-btn:hover {
+      background: rgba(0, 240, 255, 0.2);
+      border-color: #00f0ff;
+      color: #ffffff;
+    }
+
+    /* Instructions Bar */
+    .hud-instructions {
+      align-self: center;
+      pointer-events: auto;
+      background: rgba(15, 23, 42, 0.8);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 20px;
+      padding: 10px 24px;
+      display: flex;
+      align-items: center;
+      gap: 20px;
+      font-size: 12px;
+      color: #94a3b8;
+      box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+    }
+    .key-badge {
+      display: inline-block;
+      padding: 2px 7px;
+      border-radius: 5px;
+      background: rgba(255, 255, 255, 0.15);
+      color: #ffffff;
+      font-weight: 700;
+      font-size: 11px;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      margin-right: 4px;
+    }
+    .hud-instructions strong {
+      color: #38bdf8;
+    }
+
+    /* Notification Toast */
+    #toast {
+      position: absolute;
+      top: 32px;
+      left: 50%;
+      transform: translateX(-50%) translateY(-100px);
+      z-index: 50;
+      background: rgba(15, 23, 42, 0.95);
+      backdrop-filter: blur(16px);
+      border: 1px solid #00f0ff;
+      border-radius: 30px;
+      padding: 12px 28px;
+      color: #ffffff;
+      font-size: 14px;
+      font-weight: 600;
+      box-shadow: 0 10px 35px rgba(0, 240, 255, 0.4);
+      transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+      pointer-events: none;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    #toast.show {
+      transform: translateX(-50%) translateY(0);
+    }
+  </style>
+</head>
+<body class="crosshair-visible">
+  <div id="canvas-container">
+    <canvas id="webgl-canvas"></canvas>
+  </div>
+
+  <div id="crosshair"></div>
+
+  <!-- Notification Toast -->
+  <div id="toast">
+    <span style="color:#00f0ff;font-size:18px;">✦</span>
+    <span id="toast-text">SmartFlow 10s Sequence Initiated</span>
+  </div>
+
+  <!-- 10-Second Cinematic Sequence HUD -->
+  <div id="cinematic-hud">
+    <div class="hud-header">
+      <div class="brand-badge">
+        <div class="brand-icon"></div>
+        <div>
+          <div class="brand-title">SmartFlow 3D</div>
+          <div class="brand-sub">10-SECOND CINEMATIC FLIGHT</div>
+        </div>
+      </div>
+
+      <div class="timer-card">
+        <div class="timer-ring-box">
+          <svg class="timer-svg" viewBox="0 0 80 80">
+            <circle class="timer-circle-bg" cx="40" cy="40" r="36" />
+            <circle id="timer-progress" class="timer-circle-progress" cx="40" cy="40" r="36" />
+          </svg>
+          <div id="timer-number" class="timer-label">10.0s</div>
+        </div>
+        <div id="cinematic-phase" class="cinematic-phase-badge">Phase 1: Orbital Descent</div>
+      </div>
+    </div>
+
+    <div class="hud-bottom">
+      <div class="timeline-container">
+        <div class="timeline-bar-bg">
+          <div id="timeline-fill" class="timeline-bar-fill"></div>
+        </div>
+        <div class="timeline-milestones">
+          <span id="ms-1" class="active">0s: Aerial Overview</span>
+          <span id="ms-2">3s: Canyon Slalom</span>
+          <span id="ms-3">6.5s: Core Vortex</span>
+          <span id="ms-4">10s: Interactive Handover</span>
+        </div>
+      </div>
+
+      <button id="btn-skip-cinematic" class="btn-skip">
+        <span>⚡ Take Control Now (Skip)</span>
+        <span style="font-size:10px;opacity:0.8;border:1px solid rgba(255,255,255,0.4);border-radius:4px;padding:2px 6px;">SPACE</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- Direct Interactive Exploration HUD -->
+  <div id="interactive-hud">
+    <div class="interactive-top">
+      <div class="status-pill">
+        <div class="live-dot"></div>
+        <span>SMARTFLOW REAL-TIME INTERACTION ACTIVE</span>
+      </div>
+
+      <div class="controls-card">
+        <div class="panel-title">
+          <span>SMARTFLOW TUNING</span>
+          <span id="fps-counter" style="font-size:11px;color:#94a3b8;font-weight:400;">60 FPS</span>
+        </div>
+
+        <div class="slider-group">
+          <div class="slider-label">
+            <span>Flow Velocity</span>
+            <span id="val-speed">1.0x</span>
+          </div>
+          <input type="range" id="slider-speed" min="0.2" max="3.0" step="0.1" value="1.0" />
+        </div>
+
+        <div class="slider-group">
+          <div class="slider-label">
+            <span>Turbulence / Chaos</span>
+            <span id="val-turb">0.8</span>
+          </div>
+          <input type="range" id="slider-turb" min="0.0" max="2.5" step="0.1" value="0.8" />
+        </div>
+
+        <div class="slider-group">
+          <div class="slider-label">
+            <span>Core Energy Flux</span>
+            <span id="val-energy">1.2</span>
+          </div>
+          <input type="range" id="slider-energy" min="0.5" max="3.0" step="0.1" value="1.2" />
+        </div>
+
+        <div class="slider-group">
+          <div class="slider-label"><span>Color Theme</span></div>
+          <div class="palette-grid">
+            <button class="palette-btn active" data-theme="cyber">Cyber</button>
+            <button class="palette-btn" data-theme="solar">Solar</button>
+            <button class="palette-btn" data-theme="bio">Bio</button>
+            <button class="palette-btn" data-theme="void">Void</button>
+          </div>
+        </div>
+
+        <div class="panel-btn-row">
+          <button id="btn-replay" class="action-btn">
+            <span>↺ Replay 10s Tour</span>
+          </button>
+          <button id="btn-toggle-cam" class="action-btn">
+            <span id="cam-label">Mode: Walk</span>
+          </button>
+        </div>
+
+        <div class="panel-btn-row">
+          <button id="btn-audio" class="action-btn">
+            <span id="audio-label">🔊 Audio: On</span>
+          </button>
+          <button id="btn-density" class="action-btn">
+            <span id="density-label">20K Particles</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div class="hud-instructions">
+      <div><span class="key-badge">W</span><span class="key-badge">A</span><span class="key-badge">S</span><span class="key-badge">D</span> Move</div>
+      <div><span class="key-badge">Mouse</span> Look around (Click canvas to lock)</div>
+      <div><span class="key-badge">Left Click</span> <strong>Cast Gravitational Vortex</strong></div>
+      <div><span class="key-badge">Right Click</span> <strong>Trigger Shockwave Blast</strong></div>
+      <div><span class="key-badge">V</span> Toggle Walk / Orbit</div>
+      <div><span class="key-badge">Shift</span> Sprint Boost</div>
+    </div>
+  </div>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>

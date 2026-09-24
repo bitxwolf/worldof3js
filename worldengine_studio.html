@@ -1,0 +1,1687 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>WorldEngine Studio — v1.2.0</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Phosphor Icons -->
+  <script src="https://unpkg.com/@phosphor-icons/web"></script>
+  <!-- Three.js and OrbitControls -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            mac: {
+              bg: '#16181d',
+              surface: 'rgba(28, 31, 38, 0.72)',
+              surfaceBorder: 'rgba(255, 255, 255, 0.08)',
+              sidebar: 'rgba(21, 23, 29, 0.78)',
+              panel: 'rgba(25, 28, 35, 0.65)',
+              accent: '#3b82f6',
+              accentHover: '#2563eb',
+              text: '#f3f4f6',
+              textMuted: '#9ca3af',
+              card: 'rgba(38, 42, 53, 0.55)'
+            }
+          },
+          fontFamily: {
+            sans: ['-apple-system', 'BlinkMacSystemFont', '"SF Pro Display"', '"SF Pro Text"', 'Inter', 'system-ui', 'sans-serif'],
+            mono: ['"SF Mono"', 'ui-monospace', 'Menlo', 'Monaco', 'monospace']
+          }
+        }
+      }
+    }
+  </script>
+
+  <style>
+    /* Custom macOS Glassmorphism and scrollbar */
+    body {
+      user-select: none;
+      -webkit-font-smoothing: antialiased;
+      overflow: hidden;
+      background: #0f1115;
+    }
+    .mac-blur {
+      backdrop-filter: blur(24px) saturate(180%);
+      -webkit-backdrop-filter: blur(24px) saturate(180%);
+    }
+    .mac-subtle-blur {
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+    }
+    .custom-scrollbar::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    .custom-scrollbar::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.14);
+      border-radius: 9999px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+      background: rgba(255, 255, 255, 0.25);
+    }
+    /* Pulse glow for pipeline indicators */
+    @keyframes pulseGlow {
+      0%, 100% { opacity: 0.5; transform: scale(1); }
+      50% { opacity: 1; transform: scale(1.04); }
+    }
+    .pulse-indicator {
+      animation: pulseGlow 2s infinite ease-in-out;
+    }
+    /* Crosshair for pointer lock mode */
+    #crosshair {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      pointer-events: none;
+      display: none;
+    }
+    #crosshair::before, #crosshair::after {
+      content: '';
+      position: absolute;
+      background: rgba(255, 255, 255, 0.85);
+      border-radius: 1px;
+    }
+    #crosshair::before {
+      top: -9px; left: -1px; width: 2px; height: 18px;
+    }
+    #crosshair::after {
+      top: -1px; left: -9px; width: 18px; height: 2px;
+    }
+  </style>
+</head>
+
+<body class="h-screen w-screen flex flex-col font-sans text-mac-text bg-mac-bg antialiased selection:bg-blue-500/30">
+
+  <header class="h-10 w-full flex items-center justify-between px-3 border-b border-mac-surfaceBorder bg-mac-sidebar mac-blur z-40 select-none">
+    <!-- Left: Traffic lights & Sidebar Toggle -->
+    <div class="flex items-center space-x-3">
+      <div class="flex items-center space-x-2 mr-2">
+        <div class="w-3 h-3 rounded-full bg-[#ff5f56] border border-[#e0443e] cursor-pointer hover:opacity-85 shadow-sm transition"></div>
+        <div class="w-3 h-3 rounded-full bg-[#ffbd2e] border border-[#dea123] cursor-pointer hover:opacity-85 shadow-sm transition"></div>
+        <div class="w-3 h-3 rounded-full bg-[#27c93f] border border-[#1aab29] cursor-pointer hover:opacity-85 shadow-sm transition"></div>
+      </div>
+      <button id="toggleSidebarBtn" title="Toggle Sidebar" class="p-1 rounded-md text-mac-textMuted hover:text-white hover:bg-white/10 transition">
+        <i class="ph ph-sidebar text-base"></i>
+      </button>
+      <div class="h-4 w-[1px] bg-white/10 mx-1"></div>
+      <div class="flex items-center space-x-1.5 text-xs text-mac-textMuted font-medium">
+        <i class="ph ph-cube text-blue-400"></i>
+        <span class="text-white font-semibold">WorldEngine</span>
+        <span class="text-[11px] px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20 font-mono">v1.2.0</span>
+      </div>
+    </div>
+
+    <!-- Center: Segmented Camera & Mode Picker -->
+    <div class="flex items-center bg-black/30 p-0.5 rounded-lg border border-white/5 text-xs">
+      <button id="modeOrbitBtn" class="px-2.5 py-1 rounded-md bg-white/15 text-white font-medium flex items-center space-x-1.5 shadow-sm transition">
+        <i class="ph ph-camera-rotate text-sm"></i>
+        <span>Orbit View</span>
+      </button>
+      <button id="modeWalkBtn" class="px-2.5 py-1 rounded-md text-mac-textMuted hover:text-white font-medium flex items-center space-x-1.5 transition">
+        <i class="ph ph-person-simple-walk text-sm"></i>
+        <span>Walk (FPS)</span>
+      </button>
+      <button id="modeWireframeBtn" class="px-2.5 py-1 rounded-md text-mac-textMuted hover:text-white font-medium flex items-center space-x-1.5 transition">
+        <i class="ph ph-grid-four text-sm"></i>
+        <span>Wireframe</span>
+      </button>
+    </div>
+
+    <!-- Right: Quick actions and panel toggles -->
+    <div class="flex items-center space-x-2">
+      <div id="seedBadge" class="text-[11px] font-mono text-mac-textMuted px-2 py-0.5 rounded bg-white/5 border border-white/10 hidden sm:block">
+        SEED: <span id="currentSeedDisplay" class="text-emerald-400">482910</span>
+      </div>
+      <button id="bakeProceduralBtn" class="px-2.5 py-1 rounded-md bg-white/10 hover:bg-white/15 text-xs font-medium text-white flex items-center space-x-1 border border-white/10 transition">
+        <i class="ph ph-sparkle text-amber-400"></i>
+        <span>Re-Seed</span>
+      </button>
+      <button id="exportSceneBtn" class="px-2.5 py-1 rounded-md bg-blue-600 hover:bg-blue-500 text-xs font-medium text-white flex items-center space-x-1 transition shadow-sm">
+        <i class="ph ph-export"></i>
+        <span>Export GLTF</span>
+      </button>
+      <button id="toggleInspectorBtn" title="Toggle Inspector" class="p-1 rounded-md text-white bg-white/10 hover:bg-white/15 transition">
+        <i class="ph ph-sliders-horizontal text-base"></i>
+      </button>
+    </div>
+  </header>
+
+  <div class="flex-1 flex overflow-hidden relative">
+
+    <!-- LEFT SIDEBAR: Scene Graph & Biome Presets -->
+    <aside id="leftSidebar" class="w-72 bg-mac-sidebar mac-blur border-r border-mac-surfaceBorder flex flex-col transition-all duration-200 z-20 select-none">
+      <!-- Section Tabs -->
+      <div class="p-2 border-b border-white/5 flex space-x-1">
+        <button id="tabHierarchyBtn" class="flex-1 py-1.5 text-xs font-semibold rounded-md bg-white/10 text-white flex items-center justify-center space-x-1 transition">
+          <i class="ph ph-tree-structure text-blue-400"></i>
+          <span>Hierarchy</span>
+        </button>
+        <button id="tabBiomesBtn" class="flex-1 py-1.5 text-xs font-medium rounded-md text-mac-textMuted hover:text-white hover:bg-white/5 flex items-center justify-center space-x-1 transition">
+          <i class="ph ph-planet text-emerald-400"></i>
+          <span>Biomes</span>
+        </button>
+        <button id="tabGeneratorsBtn" class="flex-1 py-1.5 text-xs font-medium rounded-md text-mac-textMuted hover:text-white hover:bg-white/5 flex items-center justify-center space-x-1 transition">
+          <i class="ph ph-faders text-amber-400"></i>
+          <span>Tuning</span>
+        </button>
+      </div>
+
+      <!-- Hierarchy Content -->
+      <div id="panelHierarchy" class="flex-1 overflow-y-auto custom-scrollbar p-2 space-y-1">
+        <div class="text-[10px] uppercase font-bold tracking-wider text-mac-textMuted/70 px-2 py-1 flex justify-between items-center">
+          <span>Scene Graph</span>
+          <span class="font-mono text-[9px] bg-white/5 px-1 rounded">7 Nodes</span>
+        </div>
+        
+        <div id="treeContainer" class="space-y-0.5 text-xs">
+          <!-- Tree Nodes populated dynamically -->
+        </div>
+
+        <div class="pt-3 border-t border-white/5 mt-3">
+          <div class="text-[10px] uppercase font-bold tracking-wider text-mac-textMuted/70 px-2 py-1">
+            Collision & Physics
+          </div>
+          <div class="px-2 py-1.5 rounded bg-black/20 border border-white/5 flex items-center justify-between text-xs text-mac-textMuted">
+            <span class="flex items-center space-x-1.5">
+              <i class="ph ph-shield-check text-emerald-400"></i>
+              <span>Terrain Raycast Colliders</span>
+            </span>
+            <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Biomes Preset Content -->
+      <div id="panelBiomes" class="flex-1 overflow-y-auto custom-scrollbar p-2.5 space-y-2 hidden">
+        <div class="text-[10px] uppercase font-bold tracking-wider text-mac-textMuted/70 px-1">
+          Procedural Biomes
+        </div>
+        
+        <div class="grid grid-cols-1 gap-2">
+          <!-- Biome Card 1 -->
+          <div class="biome-card p-2.5 rounded-lg border border-blue-500/40 bg-blue-500/10 cursor-pointer hover:bg-blue-500/20 transition flex items-center space-x-3" data-biome="pine">
+            <div class="w-9 h-9 rounded-md bg-emerald-950/80 border border-emerald-600/40 flex items-center justify-center text-emerald-400 text-lg">
+              <i class="ph ph-tree-evergreen"></i>
+            </div>
+            <div class="flex-1">
+              <div class="text-xs font-semibold text-white flex items-center justify-between">
+                <span>Pine Forest</span>
+                <span class="text-[10px] text-blue-400">Active</span>
+              </div>
+              <div class="text-[11px] text-mac-textMuted">Layered conifers, rocks, misty sun</div>
+            </div>
+          </div>
+
+          <!-- Biome Card 2 -->
+          <div class="biome-card p-2.5 rounded-lg border border-white/5 bg-mac-card cursor-pointer hover:bg-white/10 transition flex items-center space-x-3" data-biome="cyber">
+            <div class="w-9 h-9 rounded-md bg-purple-950/80 border border-purple-600/40 flex items-center justify-center text-pink-400 text-lg">
+              <i class="ph ph-buildings"></i>
+            </div>
+            <div class="flex-1">
+              <div class="text-xs font-semibold text-white">Neon Cyber Grid</div>
+              <div class="text-[11px] text-mac-textMuted">Monolithic towers, grid lines, fog</div>
+            </div>
+          </div>
+
+          <!-- Biome Card 3 -->
+          <div class="biome-card p-2.5 rounded-lg border border-white/5 bg-mac-card cursor-pointer hover:bg-white/10 transition flex items-center space-x-3" data-biome="canyon">
+            <div class="w-9 h-9 rounded-md bg-amber-950/80 border border-amber-600/40 flex items-center justify-center text-amber-400 text-lg">
+              <i class="ph ph-mountains"></i>
+            </div>
+            <div class="flex-1">
+              <div class="text-xs font-semibold text-white">Red Desert Canyon</div>
+              <div class="text-[11px] text-mac-textMuted">Plateau ridges, saguaro spires</div>
+            </div>
+          </div>
+
+          <!-- Biome Card 4 -->
+          <div class="biome-card p-2.5 rounded-lg border border-white/5 bg-mac-card cursor-pointer hover:bg-white/10 transition flex items-center space-x-3" data-biome="alien">
+            <div class="w-9 h-9 rounded-md bg-teal-950/80 border border-teal-600/40 flex items-center justify-center text-teal-300 text-lg">
+              <i class="ph ph-atom"></i>
+            </div>
+            <div class="flex-1">
+              <div class="text-xs font-semibold text-white">Bioluminescent Spire</div>
+              <div class="text-[11px] text-mac-textMuted">Glowing mushrooms, ethereal spores</div>
+            </div>
+          </div>
+
+          <!-- Biome Card 5 -->
+          <div class="biome-card p-2.5 rounded-lg border border-white/5 bg-mac-card cursor-pointer hover:bg-white/10 transition flex items-center space-x-3" data-biome="ruins">
+            <div class="w-9 h-9 rounded-md bg-stone-900 border border-stone-600/40 flex items-center justify-center text-stone-300 text-lg">
+              <i class="ph ph-castle-turret"></i>
+            </div>
+            <div class="flex-1">
+              <div class="text-xs font-semibold text-white">Ancient Ruins Dusk</div>
+              <div class="text-[11px] text-mac-textMuted">Overgrown pillars, warm sunset</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tuning Sliders Content -->
+      <div id="panelGenerators" class="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-4 hidden text-xs">
+        <div class="text-[10px] uppercase font-bold tracking-wider text-mac-textMuted/70">
+          Noise & Generation Parameters
+        </div>
+
+        <div class="space-y-1">
+          <div class="flex justify-between">
+            <span class="text-mac-textMuted">Terrain Elevation Amplitude</span>
+            <span id="valElevation" class="font-mono text-white">12.0</span>
+          </div>
+          <input id="sliderElevation" type="range" min="2" max="25" step="1" value="12" class="w-full h-1 bg-white/20 rounded-lg appearance-none cursor-pointer accent-blue-500">
+        </div>
+
+        <div class="space-y-1">
+          <div class="flex justify-between">
+            <span class="text-mac-textMuted">Flora Density (Instances)</span>
+            <span id="valDensity" class="font-mono text-white">65</span>
+          </div>
+          <input id="sliderDensity" type="range" min="10" max="150" step="5" value="65" class="w-full h-1 bg-white/20 rounded-lg appearance-none cursor-pointer accent-blue-500">
+        </div>
+
+        <div class="space-y-1">
+          <div class="flex justify-between">
+            <span class="text-mac-textMuted">Atmospheric Fog Density</span>
+            <span id="valFog" class="font-mono text-white">0.015</span>
+          </div>
+          <input id="sliderFog" type="range" min="0.002" max="0.04" step="0.002" value="0.015" class="w-full h-1 bg-white/20 rounded-lg appearance-none cursor-pointer accent-blue-500">
+        </div>
+
+        <div class="space-y-1">
+          <div class="flex justify-between">
+            <span class="text-mac-textMuted">Sun Angle (Time of Day)</span>
+            <span id="valSun" class="font-mono text-white">45°</span>
+          </div>
+          <input id="sliderSun" type="range" min="10" max="170" step="5" value="45" class="w-full h-1 bg-white/20 rounded-lg appearance-none cursor-pointer accent-blue-500">
+        </div>
+
+        <div class="p-2.5 rounded bg-blue-500/10 border border-blue-500/20 text-blue-300 text-[11px] leading-relaxed">
+          <i class="ph ph-info mr-1"></i> Changes regenerate GPU buffer geometries on the fly using zero-leak mesh recycling.
+        </div>
+      </div>
+
+      <!-- Left Sidebar Footer: Engine Memory Status -->
+      <div class="p-2.5 border-t border-white/5 bg-black/20 text-[11px] flex items-center justify-between text-mac-textMuted font-mono">
+        <span class="flex items-center space-x-1.5">
+          <span class="w-2 h-2 rounded-full bg-green-400"></span>
+          <span>Buffer: 34.2 MB</span>
+        </span>
+        <button id="forceGcBtn" title="Invoke dispose() garbage collection" class="hover:text-white px-1.5 py-0.5 rounded hover:bg-white/10 transition">
+          <i class="ph ph-arrow-counter-clockwise text-xs"></i> GC
+        </button>
+      </div>
+    </aside>
+
+    <main class="flex-1 flex flex-col relative overflow-hidden bg-black">
+      
+      <!-- 3D Canvas Canvas Container -->
+      <div id="viewportContainer" class="relative w-full h-full cursor-grab active:cursor-grabbing">
+        <canvas id="threeCanvas" class="w-full h-full block"></canvas>
+
+        <!-- Crosshair for walk mode -->
+        <div id="crosshair"></div>
+
+        <!-- Walk Mode Exit Helper Banner -->
+        <div id="walkModeNotice" class="hidden absolute top-4 left-1/2 -translate-x-1/2 px-4 py-1.5 rounded-full bg-black/80 mac-blur border border-white/20 text-xs text-white flex items-center space-x-3 pointer-events-none shadow-xl z-20">
+          <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+          <span>Walk Mode: Use <kbd class="px-1.5 py-0.5 bg-white/20 rounded font-mono text-[10px]">W</kbd><kbd class="px-1.5 py-0.5 bg-white/20 rounded font-mono text-[10px]">A</kbd><kbd class="px-1.5 py-0.5 bg-white/20 rounded font-mono text-[10px]">S</kbd><kbd class="px-1.5 py-0.5 bg-white/20 rounded font-mono text-[10px]">D</kbd> or <kbd class="px-1.5 py-0.5 bg-white/20 rounded font-mono text-[10px]">Arrows</kbd> to explore.</span>
+          <span class="text-mac-textMuted text-[10px]">Click anywhere or press Esc to toggle</span>
+        </div>
+
+        <!-- Top Left Viewport HUD Overlay -->
+        <div class="absolute top-3 left-3 flex flex-col space-y-1.5 pointer-events-none z-10">
+          <div class="flex items-center space-x-2 px-2.5 py-1 rounded-md bg-black/60 mac-subtle-blur border border-white/10 text-xs text-white">
+            <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+            <span id="hudFps" class="font-mono font-semibold">60 FPS</span>
+            <span class="text-white/20">|</span>
+            <span id="hudPoly" class="font-mono text-mac-textMuted text-[11px]">18.4k Tris</span>
+            <span class="text-white/20">|</span>
+            <span id="hudDraws" class="font-mono text-mac-textMuted text-[11px]">42 Calls</span>
+          </div>
+
+          <div class="px-2.5 py-1 rounded-md bg-black/60 mac-subtle-blur border border-white/10 text-[11px] font-mono text-mac-textMuted flex items-center space-x-2">
+            <i class="ph ph-navigation-arrow text-blue-400"></i>
+            <span id="hudCoords">CAM: X: 24.5 Y: 18.2 Z: 32.1</span>
+          </div>
+        </div>
+
+        <!-- Top Right Viewport Quick Control Overlay -->
+        <div class="absolute top-3 right-3 flex items-center space-x-1.5 z-10">
+          <button id="resetCamBtn" title="Reset Camera" class="px-2.5 py-1 rounded-md bg-black/60 mac-subtle-blur hover:bg-white/20 border border-white/10 text-xs text-white transition flex items-center space-x-1">
+            <i class="ph ph-arrows-clockwise"></i>
+            <span>Reset View</span>
+          </button>
+          <button id="toggleShadowsBtn" title="Toggle High Quality Shadows" class="px-2 py-1 rounded-md bg-black/60 mac-subtle-blur hover:bg-white/20 border border-white/10 text-xs text-white transition">
+            <i class="ph ph-sun-dim text-amber-300"></i>
+          </button>
+        </div>
+
+        <!-- Selection Outline Indicator Pill -->
+        <div id="selectionBadge" class="hidden absolute bottom-28 left-6 px-3 py-1.5 rounded-lg bg-black/75 mac-blur border border-blue-500/40 text-xs text-white flex items-center space-x-2 shadow-2xl z-20">
+          <i class="ph ph-cursor-click text-blue-400"></i>
+          <span>Selected: <span id="selectedEntityName" class="font-semibold text-blue-300">Tree_Oak_04</span></span>
+          <button id="deselectEntityBtn" class="text-mac-textMuted hover:text-white ml-2"><i class="ph ph-x"></i></button>
+        </div>
+      </div>
+
+      <div class="absolute bottom-4 left-1/2 -translate-x-1/2 w-11/12 max-w-2xl z-30 flex flex-col space-y-2">
+        
+        <!-- Pipeline Status Pill -->
+        <div id="pipelineStatusPill" class="hidden self-center items-center space-x-2 px-3 py-1 rounded-full bg-black/90 mac-blur border border-blue-500/30 text-[11px] text-blue-200 shadow-xl">
+          <span class="w-1.5 h-1.5 rounded-full bg-blue-400 pulse-indicator"></span>
+          <span id="pipelineStepText">Synthesizing SceneGraph JSON from prompt...</span>
+          <div class="w-16 h-1 bg-white/20 rounded-full overflow-hidden ml-1">
+            <div id="pipelineProgressBar" class="h-full bg-blue-400 transition-all duration-300 w-1/3"></div>
+          </div>
+        </div>
+
+        <!-- Floating Spotlight Prompt Input Box -->
+        <div class="p-1.5 rounded-2xl bg-mac-surface/90 mac-blur border border-white/15 shadow-2xl flex flex-col space-y-1.5">
+          <div class="flex items-center space-x-2 px-2">
+            <i class="ph ph-sparkle text-blue-400 text-lg"></i>
+            <input id="promptInput" type="text" placeholder="Describe a world to generate... (e.g. 'Misty autumn valley with ancient stone monoliths')" 
+                   class="flex-1 bg-transparent border-none outline-none text-white placeholder:text-white/40 text-xs sm:text-sm py-1 font-normal" />
+            
+            <div class="flex items-center space-x-1.5">
+              <span class="text-[10px] font-mono px-2 py-1 rounded bg-white/5 text-mac-textMuted border border-white/10 hidden sm:inline-block">Claude 3.7 SceneGraph</span>
+              <button id="generatePromptBtn" class="px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 active:scale-95 text-white font-medium text-xs flex items-center space-x-1.5 transition shadow-md">
+                <span>Generate</span>
+                <i class="ph ph-arrow-up-right font-bold text-xs"></i>
+              </button>
+            </div>
+          </div>
+
+          <!-- Quick Prompt Chips -->
+          <div class="flex items-center space-x-1.5 pt-1 overflow-x-auto custom-scrollbar text-[11px] text-mac-textMuted px-2 pb-0.5">
+            <span class="text-[10px] uppercase font-bold text-white/40 mr-1 flex items-center">
+              <i class="ph ph-lightning mr-1 text-amber-400"></i> Presets:
+            </span>
+            <button class="prompt-chip px-2 py-0.5 rounded-md bg-white/5 hover:bg-white/10 hover:text-white border border-white/5 whitespace-nowrap transition">
+              Pine Valley with Watchtower
+            </button>
+            <button class="prompt-chip px-2 py-0.5 rounded-md bg-white/5 hover:bg-white/10 hover:text-white border border-white/5 whitespace-nowrap transition">
+              Cyberpunk Alley with Rain Puddles
+            </button>
+            <button class="prompt-chip px-2 py-0.5 rounded-md bg-white/5 hover:bg-white/10 hover:text-white border border-white/5 whitespace-nowrap transition">
+              Bioluminescent Mushroom Glen
+            </button>
+            <button class="prompt-chip px-2 py-0.5 rounded-md bg-white/5 hover:bg-white/10 hover:text-white border border-white/5 whitespace-nowrap transition">
+              Desert Oasis at Sunset
+            </button>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <aside id="rightInspector" class="w-80 bg-mac-sidebar mac-blur border-l border-mac-surfaceBorder flex flex-col z-20 transition-all duration-200 select-none">
+      
+      <!-- Tab Header for Inspector -->
+      <div class="p-2 border-b border-white/5 flex space-x-1">
+        <button id="tabNodeInspectorBtn" class="flex-1 py-1.5 text-xs font-semibold rounded-md bg-white/10 text-white flex items-center justify-center space-x-1 transition">
+          <i class="ph ph-cube-transparent text-blue-400"></i>
+          <span>Inspector</span>
+        </button>
+        <button id="tabNpcDialogueBtn" class="flex-1 py-1.5 text-xs font-medium rounded-md text-mac-textMuted hover:text-white hover:bg-white/5 flex items-center justify-center space-x-1 transition">
+          <i class="ph ph-chat-centered-text text-emerald-400"></i>
+          <span>NPC Stream</span>
+        </button>
+        <button id="tabIpcConsoleBtn" class="flex-1 py-1.5 text-xs font-medium rounded-md text-mac-textMuted hover:text-white hover:bg-white/5 flex items-center justify-center space-x-1 transition">
+          <i class="ph ph-terminal text-purple-400"></i>
+          <span>IPC Telemetry</span>
+        </button>
+      </div>
+
+      <!-- Sub-panel 1: Node Properties Inspector -->
+      <div id="panelNodeInspector" class="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-3.5 text-xs">
+        
+        <!-- Header Node Badge -->
+        <div class="p-2.5 rounded-lg bg-black/30 border border-white/5 flex items-center justify-between">
+          <div class="flex items-center space-x-2">
+            <div class="w-7 h-7 rounded bg-blue-500/20 border border-blue-500/30 flex items-center justify-center text-blue-400">
+              <i id="inspectIcon" class="ph ph-tree text-base"></i>
+            </div>
+            <div>
+              <div id="inspectName" class="font-semibold text-white">ProceduralTree_Cluster</div>
+              <div id="inspectType" class="text-[10px] text-mac-textMuted font-mono">Type: ProceduralFoliageMesh</div>
+            </div>
+          </div>
+          <span class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">Active</span>
+        </div>
+
+        <!-- Transform Parameters -->
+        <div class="space-y-2">
+          <div class="text-[10px] uppercase font-bold tracking-wider text-mac-textMuted/80">Transform Matrix</div>
+          
+          <!-- Position X Y Z -->
+          <div class="grid grid-cols-3 gap-1.5">
+            <div class="bg-black/30 p-1.5 rounded border border-white/5">
+              <span class="text-[9px] text-rose-400 block font-mono">POS X</span>
+              <input id="inputPosX" type="number" value="4.2" step="0.5" class="w-full bg-transparent font-mono text-white text-xs outline-none" />
+            </div>
+            <div class="bg-black/30 p-1.5 rounded border border-white/5">
+              <span class="text-[9px] text-emerald-400 block font-mono">POS Y</span>
+              <input id="inputPosY" type="number" value="0.0" step="0.5" class="w-full bg-transparent font-mono text-white text-xs outline-none" />
+            </div>
+            <div class="bg-black/30 p-1.5 rounded border border-white/5">
+              <span class="text-[9px] text-blue-400 block font-mono">POS Z</span>
+              <input id="inputPosZ" type="number" value="-6.5" step="0.5" class="w-full bg-transparent font-mono text-white text-xs outline-none" />
+            </div>
+          </div>
+
+          <!-- Scale X Y Z -->
+          <div class="grid grid-cols-3 gap-1.5">
+            <div class="bg-black/30 p-1.5 rounded border border-white/5">
+              <span class="text-[9px] text-mac-textMuted block font-mono">SCALE X</span>
+              <span id="txtScaleX" class="font-mono text-white text-xs">1.00</span>
+            </div>
+            <div class="bg-black/30 p-1.5 rounded border border-white/5">
+              <span class="text-[9px] text-mac-textMuted block font-mono">SCALE Y</span>
+              <span id="txtScaleY" class="font-mono text-white text-xs">1.25</span>
+            </div>
+            <div class="bg-black/30 p-1.5 rounded border border-white/5">
+              <span class="text-[9px] text-mac-textMuted block font-mono">SCALE Z</span>
+              <span id="txtScaleZ" class="font-mono text-white text-xs">1.00</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Shader & Material Properties -->
+        <div class="space-y-2 pt-1 border-t border-white/5">
+          <div class="text-[10px] uppercase font-bold tracking-wider text-mac-textMuted/80">Material & Shader</div>
+          
+          <div class="space-y-1">
+            <div class="flex justify-between text-[11px]">
+              <span class="text-mac-textMuted">Roughness Factor</span>
+              <span id="valRoughness" class="font-mono text-white">0.68</span>
+            </div>
+            <input id="sliderRoughness" type="range" min="0" max="1" step="0.05" value="0.68" class="w-full h-1 bg-white/20 rounded-lg appearance-none cursor-pointer accent-blue-500">
+          </div>
+
+          <div class="space-y-1">
+            <div class="flex justify-between text-[11px]">
+              <span class="text-mac-textMuted">Metalness</span>
+              <span id="valMetalness" class="font-mono text-white">0.10</span>
+            </div>
+            <input id="sliderMetalness" type="range" min="0" max="1" step="0.05" value="0.10" class="w-full h-1 bg-white/20 rounded-lg appearance-none cursor-pointer accent-blue-500">
+          </div>
+
+          <div class="flex items-center justify-between pt-1">
+            <span class="text-mac-textMuted text-[11px]">Cast Shadow & Occlusion</span>
+            <input type="checkbox" checked class="rounded border-white/10 bg-black/40 text-blue-500 accent-blue-500" />
+          </div>
+        </div>
+
+        <!-- Procedural Metadata -->
+        <div class="space-y-1.5 pt-2 border-t border-white/5 font-mono text-[10px]">
+          <div class="text-[10px] uppercase font-bold tracking-wider text-mac-textMuted/80 font-sans">Generator Provenance</div>
+          <div class="bg-black/40 p-2 rounded border border-white/5 space-y-1 text-mac-textMuted">
+            <div><span class="text-white">Generator:</span> ProceduralAssetLibrary.v2</div>
+            <div><span class="text-white">LOD Strategy:</span> Dynamic Geometry Tier 1</div>
+            <div><span class="text-white">Zod Validation:</span> <span class="text-emerald-400">Passed (Strict)</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Sub-panel 2: NPC Dialogue & Conversation Memory -->
+      <div id="panelNpcDialogue" class="flex-1 flex flex-col p-2 space-y-2 hidden">
+        <!-- NPC Header -->
+        <div class="p-2 rounded bg-black/30 border border-white/5 flex items-center space-x-2.5">
+          <div class="w-8 h-8 rounded-full bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400">
+            <i class="ph ph-user text-base"></i>
+          </div>
+          <div class="flex-1">
+            <div class="text-xs font-semibold text-white flex items-center space-x-1.5">
+              <span>Eldrin the Ranger</span>
+              <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+            </div>
+            <div class="text-[10px] text-mac-textMuted">Sliding Window Memory: 4/10 turns</div>
+          </div>
+        </div>
+
+        <!-- Chat History Scrollbox -->
+        <div id="npcChatBox" class="flex-1 overflow-y-auto custom-scrollbar p-1.5 space-y-2 text-xs">
+          <!-- NPC initial message -->
+          <div class="flex flex-col items-start max-w-[90%]">
+            <div class="text-[10px] text-mac-textMuted mb-0.5 px-1 font-medium">Eldrin</div>
+            <div class="bg-white/10 rounded-2xl rounded-tl-none p-2.5 text-white text-[11px] leading-relaxed border border-white/5">
+              Greetings, wanderer. You stand upon the freshly generated ridge. The air carries pine and cold rock. What brings you to this coordinate?
+            </div>
+          </div>
+        </div>
+
+        <!-- Chat Input Form -->
+        <div class="pt-2 border-t border-white/5 flex items-center space-x-1.5">
+          <input id="npcUserInput" type="text" placeholder="Speak to Eldrin..." class="flex-1 bg-black/30 rounded-lg px-2.5 py-1.5 border border-white/10 text-xs text-white placeholder:text-white/30 outline-none focus:border-blue-500/50" />
+          <button id="sendNpcChatBtn" class="p-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white transition">
+            <i class="ph ph-paper-plane-right text-sm"></i>
+          </button>
+        </div>
+      </div>
+
+      <!-- Sub-panel 3: IPC Telemetry & Engine Logging -->
+      <div id="panelIpcConsole" class="flex-1 flex flex-col p-2 space-y-2 hidden">
+        <div class="flex items-center justify-between text-[11px] px-1 text-mac-textMuted">
+          <span>IPC Channel Stream</span>
+          <button id="clearConsoleBtn" class="hover:text-white text-[10px]">Clear</button>
+        </div>
+        <div id="ipcConsoleLog" class="flex-1 font-mono text-[10px] bg-black/60 rounded p-2 overflow-y-auto custom-scrollbar space-y-1.5 text-mac-textMuted border border-white/5">
+          <div class="text-blue-400">[IPC:MAIN_READY] Main process initialized. Sandboxed IPC channel opened.</div>
+          <div class="text-emerald-400">[IPC:ZOD_SCHEMA] SceneGraph validated in 1.4ms. 0 violations.</div>
+          <div class="text-mac-textMuted">[THREE:DISPOSE] Previous mesh buffer reclaimed: 14 Geometries.</div>
+          <div class="text-amber-400">[PROCEDURAL:BIOME] Applied preset 'Pine Forest' (Seed: 482910).</div>
+        </div>
+      </div>
+
+      <!-- Right Footer: Status Pill -->
+      <div class="p-2 border-t border-white/5 bg-black/20 text-[10px] flex items-center justify-between text-mac-textMuted">
+        <span class="flex items-center space-x-1 font-mono">
+          <i class="ph ph-cpu text-blue-400"></i>
+          <span>WebGL 2.0 (Three r128)</span>
+        </span>
+        <span class="text-emerald-400 font-mono">● 0 IPC Errors</span>
+      </div>
+    </aside>
+
+  </div>
+
+  <script>
+    /* =========================================================================
+       WORLD ENGINE STUDIO - Procedural Three.js Runtime & macOS Shell
+       ========================================================================= */
+
+    // Application state
+    const state = {
+      seed: 482910,
+      activeBiome: 'pine',
+      params: {
+        elevation: 12.0,
+        density: 65,
+        fogDensity: 0.015,
+        sunAngle: 45,
+        wireframe: false
+      },
+      selectedNodeId: null,
+      isWalkMode: false,
+      isGenerating: false,
+      fps: 60,
+      polyCount: 0,
+      drawCalls: 0
+    };
+
+    // Three.js Core handles
+    let scene, camera, renderer, controls;
+    let terrainMesh, sunLight, ambientLight;
+    let sceneGraphGroup; // Holds all procedurally generated objects
+    let npcCharacterMesh; // In-world interactive NPC
+    let selectionBoxHelper;
+    let clock = new THREE.Clock();
+
+    // First Person Walk Mode variables
+    const moveKeys = { forward: false, backward: false, left: false, right: false };
+    let playerVelocity = new THREE.Vector3();
+    let playerDirection = new THREE.Vector3();
+
+    // Scene Graph hierarchy tracking
+    let hierarchyNodes = [];
+
+    function initThreeEngine() {
+      const container = document.getElementById('viewportContainer');
+      const canvas = document.getElementById('threeCanvas');
+
+      // 1. Scene setup
+      scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x0a0c10);
+      scene.fog = new THREE.FogExp2(0x0a0c10, state.params.fogDensity);
+
+      // 2. Camera setup
+      camera = new THREE.PerspectiveCamera(55, container.clientWidth / container.clientHeight, 0.1, 1000);
+      camera.position.set(28, 22, 34);
+
+      // 3. Renderer setup
+      renderer = new THREE.WebGLRenderer({
+        canvas: canvas,
+        antialias: true,
+        powerPreference: "high-performance"
+      });
+      renderer.setSize(container.clientWidth, container.clientHeight);
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+      renderer.shadowMap.enabled = true;
+      renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      renderer.toneMappingExposure = 1.1;
+
+      // 4. OrbitControls
+      controls = new THREE.OrbitControls(camera, renderer.domElement);
+      controls.enableDamping = true;
+      controls.dampingFactor = 0.05;
+      controls.maxPolarAngle = Math.PI / 2 - 0.02; // Prevent going beneath ground
+      controls.minDistance = 3;
+      controls.maxDistance = 180;
+      controls.target.set(0, 4, 0);
+
+      // 5. Lighting
+      ambientLight = new THREE.AmbientLight(0xdde6ff, 0.45);
+      scene.add(ambientLight);
+
+      sunLight = new THREE.DirectionalLight(0xfff6e6, 1.25);
+      sunLight.position.set(35, 50, 25);
+      sunLight.castShadow = true;
+      sunLight.shadow.mapSize.width = 2048;
+      sunLight.shadow.mapSize.height = 2048;
+      sunLight.shadow.camera.near = 0.5;
+      sunLight.shadow.camera.far = 150;
+      sunLight.shadow.camera.left = -50;
+      sunLight.shadow.camera.right = 50;
+      sunLight.shadow.camera.top = 50;
+      sunLight.shadow.camera.bottom = -50;
+      sunLight.shadow.bias = -0.0003;
+      scene.add(sunLight);
+
+      // Group holding dynamically regenerated procedural elements
+      sceneGraphGroup = new THREE.Group();
+      sceneGraphGroup.name = "SceneGraphRoot";
+      scene.add(sceneGraphGroup);
+
+      // Bounding Box selection helper
+      selectionBoxHelper = new THREE.BoxHelper(new THREE.Mesh(), 0x3b82f6);
+      selectionBoxHelper.visible = false;
+      scene.add(selectionBoxHelper);
+
+      // Build Initial World
+      generateProceduralWorld(state.activeBiome);
+
+      // Window resize
+      window.addEventListener('resize', onWindowResize);
+
+      // Raycasting for interactive click-to-select
+      const raycaster = new THREE.Raycaster();
+      const mouse = new THREE.Vector2();
+
+      canvas.addEventListener('pointerdown', (e) => {
+        if (state.isWalkMode) return;
+        const rect = canvas.getBoundingClientRect();
+        mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+        mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+
+        raycaster.setFromCamera(mouse, camera);
+        const intersects = raycaster.intersectObjects(sceneGraphGroup.children, true);
+
+        if (intersects.length > 0) {
+          // Traverse up to find immediate child of sceneGraphGroup
+          let target = intersects[0].object;
+          while (target.parent && target.parent !== sceneGraphGroup) {
+            target = target.parent;
+          }
+          selectSceneNode(target);
+        }
+      });
+
+      // Key listeners for Walk Mode
+      window.addEventListener('keydown', onKeyDown);
+      window.addEventListener('keyup', onKeyUp);
+
+      // Start main render loop
+      animate();
+    }
+
+    // Simple Pseudo-Random deterministic function
+    function pseudoRandom(seed) {
+      const x = Math.sin(seed++) * 10000;
+      return x - Math.floor(x);
+    }
+
+    // Perlin-like 2D elevation function
+    function getElevation(x, z, seed, amplitude) {
+      const scale1 = 0.04;
+      const scale2 = 0.09;
+      const wave1 = Math.sin(x * scale1 + seed) * Math.cos(z * scale1 + seed * 0.7);
+      const wave2 = Math.sin(x * scale2 - seed * 1.3) * Math.cos(z * scale2 + seed);
+      const centerDamp = 1 - Math.min(1, Math.sqrt(x * x + z * z) / 90);
+      return (wave1 * 0.75 + wave2 * 0.25) * amplitude * (centerDamp * 0.4 + 0.6);
+    }
+
+    function buildOrganicConiferTree(seed, scale = 1.0) {
+      const treeGroup = new THREE.Group();
+      treeGroup.name = "Procedural_Pine_" + Math.floor(seed % 9999);
+
+      // Trunk
+      const trunkHeight = 3.5 * scale;
+      const trunkGeo = new THREE.CylinderGeometry(0.25 * scale, 0.45 * scale, trunkHeight, 7);
+      const trunkMat = new THREE.MeshStandardMaterial({
+        color: 0x3e2b1f,
+        roughness: 0.88,
+        metalness: 0.05
+      });
+      const trunk = new THREE.Mesh(trunkGeo, trunkMat);
+      trunk.position.y = trunkHeight / 2;
+      trunk.castShadow = true;
+      trunk.receiveShadow = true;
+      treeGroup.add(trunk);
+
+      // Multi-tier layered 3D Foliage Canopies (Not flat cardboard!)
+      const foliageMat = new THREE.MeshStandardMaterial({
+        color: new THREE.Color().setHSL(0.33 + pseudoRandom(seed) * 0.05, 0.45, 0.26 + pseudoRandom(seed + 1) * 0.06),
+        roughness: 0.75,
+        flatShading: true
+      });
+
+      const tiers = 4;
+      for (let i = 0; i < tiers; i++) {
+        const radius = (2.2 - i * 0.45) * scale;
+        const height = (2.4 - i * 0.2) * scale;
+        const tierGeo = new THREE.ConeGeometry(radius, height, 7);
+        const tierMesh = new THREE.Mesh(tierGeo, foliageMat);
+        tierMesh.position.y = (trunkHeight * 0.6) + (i * 1.5 * scale);
+        tierMesh.castShadow = true;
+        tierMesh.receiveShadow = true;
+        // subtle organic rotation
+        tierMesh.rotation.y = (i * 1.2) + pseudoRandom(seed + i);
+        treeGroup.add(tierMesh);
+      }
+
+      treeGroup.userData = {
+        type: "Flora/ProceduralPine",
+        castShadow: true,
+        roughness: 0.75,
+        seed: seed
+      };
+
+      return treeGroup;
+    }
+
+    function buildProceduralRock(seed, scale = 1.0) {
+      const geo = new THREE.DodecahedronGeometry(1.6 * scale, 1);
+      
+      // Perturb vertices for jagged organic look
+      const pos = geo.attributes.position;
+      for (let i = 0; i < pos.count; i++) {
+        const vx = pos.getX(i);
+        const vy = pos.getY(i);
+        const vz = pos.getZ(i);
+        const noise = 1 + (pseudoRandom(seed + i * 3) - 0.5) * 0.35;
+        pos.setXYZ(i, vx * noise, vy * noise, vz * noise);
+      }
+      geo.computeVertexNormals();
+
+      const mat = new THREE.MeshStandardMaterial({
+        color: new THREE.Color().setHSL(0.08, 0.12, 0.38 + pseudoRandom(seed) * 0.15),
+        roughness: 0.92,
+        metalness: 0.08,
+        flatShading: true
+      });
+
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.name = "Rock_Cluster_" + Math.floor(seed % 9999);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      mesh.userData = {
+        type: "Geology/Boulders",
+        roughness: 0.92,
+        seed: seed
+      };
+      return mesh;
+    }
+
+    function buildCyberMonolith(seed, scale = 1.0) {
+      const group = new THREE.Group();
+      group.name = "Cyber_Tower_" + Math.floor(seed % 9999);
+
+      const height = (14 + pseudoRandom(seed) * 16) * scale;
+      const width = (2.5 + pseudoRandom(seed + 1) * 3) * scale;
+      const geo = new THREE.BoxGeometry(width, height, width);
+      const mat = new THREE.MeshStandardMaterial({
+        color: 0x181a24,
+        roughness: 0.3,
+        metalness: 0.85
+      });
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.position.y = height / 2;
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      group.add(mesh);
+
+      // Neon glowing light strip
+      const neonGeo = new THREE.BoxGeometry(width * 1.02, 0.4, width * 1.02);
+      const neonMat = new THREE.MeshBasicMaterial({
+        color: pseudoRandom(seed) > 0.5 ? 0x06b6d4 : 0xec4899
+      });
+      const neonStrip = new THREE.Mesh(neonGeo, neonMat);
+      neonStrip.position.y = height * 0.75;
+      group.add(neonStrip);
+
+      group.userData = {
+        type: "Architecture/CyberMonolith",
+        roughness: 0.3,
+        seed: seed
+      };
+      return group;
+    }
+
+    function buildAncientRuinPillar(seed, scale = 1.0) {
+      const group = new THREE.Group();
+      group.name = "Ancient_Pillar_" + Math.floor(seed % 9999);
+
+      const height = (7 + pseudoRandom(seed) * 5) * scale;
+      const geo = new THREE.CylinderGeometry(1.2 * scale, 1.4 * scale, height, 8);
+      const mat = new THREE.MeshStandardMaterial({
+        color: 0x9ca3af,
+        roughness: 0.85,
+        metalness: 0.1
+      });
+      const pillar = new THREE.Mesh(geo, mat);
+      pillar.position.y = height / 2;
+      pillar.castShadow = true;
+      pillar.receiveShadow = true;
+      group.add(pillar);
+
+      // Capital capital block
+      const capGeo = new THREE.BoxGeometry(3 * scale, 0.8 * scale, 3 * scale);
+      const cap = new THREE.Mesh(capGeo, mat);
+      cap.position.y = height + 0.4 * scale;
+      cap.castShadow = true;
+      group.add(cap);
+
+      group.userData = {
+        type: "Ruins/StonePillar",
+        roughness: 0.85,
+        seed: seed
+      };
+      return group;
+    }
+
+    function buildAlienMushroom(seed, scale = 1.0) {
+      const group = new THREE.Group();
+      group.name = "Biolum_Mushroom_" + Math.floor(seed % 9999);
+
+      const stemHeight = (4 + pseudoRandom(seed) * 3) * scale;
+      const stemGeo = new THREE.CylinderGeometry(0.3 * scale, 0.6 * scale, stemHeight, 8);
+      const stemMat = new THREE.MeshStandardMaterial({
+        color: 0x2dd4bf,
+        roughness: 0.4,
+        metalness: 0.2
+      });
+      const stem = new THREE.Mesh(stemGeo, stemMat);
+      stem.position.y = stemHeight / 2;
+      group.add(stem);
+
+      // Cap
+      const capGeo = new THREE.SphereGeometry(2.4 * scale, 12, 10, 0, Math.PI * 2, 0, Math.PI * 0.5);
+      const capMat = new THREE.MeshStandardMaterial({
+        color: 0x8b5cf6,
+        roughness: 0.3,
+        emissive: 0x4c1d95,
+        emissiveIntensity: 0.6
+      });
+      const cap = new THREE.Mesh(capGeo, capMat);
+      cap.position.y = stemHeight;
+      group.add(cap);
+
+      group.userData = {
+        type: "Alien/BioluminescentFungi",
+        roughness: 0.3,
+        seed: seed
+      };
+      return group;
+    }
+
+    function buildNpcCharacter() {
+      const npcGroup = new THREE.Group();
+      npcGroup.name = "NPC_Eldrin_The_Ranger";
+
+      // Robe body
+      const bodyGeo = new THREE.ConeGeometry(0.8, 2.2, 8);
+      const bodyMat = new THREE.MeshStandardMaterial({ color: 0x1e3a8a, roughness: 0.7 });
+      const body = new THREE.Mesh(bodyGeo, bodyMat);
+      body.position.y = 1.1;
+      body.castShadow = true;
+      npcGroup.add(body);
+
+      // Head
+      const headGeo = new THREE.SphereGeometry(0.45, 12, 12);
+      const headMat = new THREE.MeshStandardMaterial({ color: 0xfde047, roughness: 0.5 });
+      const head = new THREE.Mesh(headGeo, headMat);
+      head.position.y = 2.45;
+      head.castShadow = true;
+      npcGroup.add(head);
+
+      // Cloak Hood
+      const hoodGeo = new THREE.ConeGeometry(0.6, 0.75, 8);
+      const hoodMat = new THREE.MeshStandardMaterial({ color: 0x172554, roughness: 0.8 });
+      const hood = new THREE.Mesh(hoodGeo, hoodMat);
+      hood.position.y = 2.65;
+      npcGroup.add(hood);
+
+      // Staff with glowing crystal
+      const staffGeo = new THREE.CylinderGeometry(0.06, 0.08, 3.2, 6);
+      const staffMat = new THREE.MeshStandardMaterial({ color: 0x78350f });
+      const staff = new THREE.Mesh(staffGeo, staffMat);
+      staff.position.set(0.9, 1.6, 0.4);
+      npcGroup.add(staff);
+
+      const crystalGeo = new THREE.OctahedronGeometry(0.24);
+      const crystalMat = new THREE.MeshBasicMaterial({ color: 0x34d399 });
+      const crystal = new THREE.Mesh(crystalGeo, crystalMat);
+      crystal.position.set(0.9, 3.2, 0.4);
+      npcGroup.add(crystal);
+
+      npcGroup.userData = {
+        type: "Entity/HumanoidNPC",
+        name: "Eldrin the Ranger",
+        roughness: 0.6,
+        seed: 777
+      };
+
+      return npcGroup;
+    }
+
+    function generateProceduralWorld(biomeType) {
+      logIpc(`[PROCEDURAL:BUILD] Starting pipeline for biome '${biomeType}' (Seed: ${state.seed})`);
+
+      // 1. Dispose old assets strictly to prevent WebGL context memory leaks
+      while (sceneGraphGroup.children.length > 0) {
+        const obj = sceneGraphGroup.children[0];
+        sceneGraphGroup.remove(obj);
+        disposeNodeHierarchy(obj);
+      }
+      if (terrainMesh) {
+        scene.remove(terrainMesh);
+        terrainMesh.geometry.dispose();
+        terrainMesh.material.dispose();
+        terrainMesh = null;
+      }
+      logIpc(`[THREE:DISPOSE] Flushed previous geometries and textures.`);
+
+      // 2. Configure Biome Theme Colors and Atmosphere
+      let groundColor = 0x223824;
+      let fogColor = 0x0c1117;
+      let skyColor = 0x111827;
+
+      if (biomeType === 'pine') {
+        groundColor = 0x2a3d28;
+        fogColor = 0x0f172a;
+        ambientLight.color.setHex(0x94a3b8);
+        sunLight.color.setHex(0xfffae0);
+      } else if (biomeType === 'cyber') {
+        groundColor = 0x111318;
+        fogColor = 0x090514;
+        ambientLight.color.setHex(0x38bdf8);
+        sunLight.color.setHex(0xf43f5e);
+      } else if (biomeType === 'canyon') {
+        groundColor = 0x7c2d12;
+        fogColor = 0x29150d;
+        ambientLight.color.setHex(0xfdba74);
+        sunLight.color.setHex(0xffedd5);
+      } else if (biomeType === 'alien') {
+        groundColor = 0x064e3b;
+        fogColor = 0x041b18;
+        ambientLight.color.setHex(0x2dd4bf);
+        sunLight.color.setHex(0xa855f7);
+      } else if (biomeType === 'ruins') {
+        groundColor = 0x44403c;
+        fogColor = 0x1c1917;
+        ambientLight.color.setHex(0xfde68a);
+        sunLight.color.setHex(0xfb923c);
+      }
+
+      scene.background.setHex(skyColor);
+      scene.fog.color.setHex(fogColor);
+      scene.fog.density = state.params.fogDensity;
+
+      // 3. Generate Deformed Heightmapped Terrain
+      const terrainSize = 160;
+      const segments = 100;
+      const terrainGeo = new THREE.PlaneGeometry(terrainSize, terrainSize, segments, segments);
+      terrainGeo.rotateX(-Math.PI / 2);
+
+      const positions = terrainGeo.attributes.position;
+      for (let i = 0; i < positions.count; i++) {
+        const x = positions.getX(i);
+        const z = positions.getZ(i);
+        const y = getElevation(x, z, state.seed, state.params.elevation);
+        positions.setY(i, y);
+      }
+      terrainGeo.computeVertexNormals();
+
+      const terrainMat = new THREE.MeshStandardMaterial({
+        color: groundColor,
+        roughness: 0.9,
+        metalness: 0.05,
+        wireframe: state.params.wireframe,
+        flatShading: true
+      });
+
+      terrainMesh = new THREE.Mesh(terrainGeo, terrainMat);
+      terrainMesh.name = "Terrain_Heightmap_Surface";
+      terrainMesh.receiveShadow = true;
+      terrainMesh.userData = { type: "Terrain/HeightmapMesh" };
+      scene.add(terrainMesh);
+
+      // 4. Place Procedural Features on Terrain based on biome
+      const count = state.params.density;
+      for (let i = 0; i < count; i++) {
+        const itemSeed = state.seed + (i * 137.5);
+        // Distribute within a circular radius
+        const angle = pseudoRandom(itemSeed) * Math.PI * 2;
+        const dist = 6 + pseudoRandom(itemSeed + 1) * 65;
+        const x = Math.cos(angle) * dist;
+        const z = Math.sin(angle) * dist;
+        const y = getElevation(x, z, state.seed, state.params.elevation);
+
+        let entity;
+        if (biomeType === 'pine') {
+          if (pseudoRandom(itemSeed + 2) > 0.3) {
+            entity = buildOrganicConiferTree(itemSeed, 0.7 + pseudoRandom(itemSeed + 3) * 0.7);
+          } else {
+            entity = buildProceduralRock(itemSeed, 0.8 + pseudoRandom(itemSeed + 3) * 0.9);
+          }
+        } else if (biomeType === 'cyber') {
+          entity = buildCyberMonolith(itemSeed, 0.6 + pseudoRandom(itemSeed + 3) * 0.8);
+        } else if (biomeType === 'alien') {
+          entity = buildAlienMushroom(itemSeed, 0.8 + pseudoRandom(itemSeed + 3) * 0.7);
+        } else if (biomeType === 'ruins') {
+          entity = buildAncientRuinPillar(itemSeed, 0.7 + pseudoRandom(itemSeed + 3) * 0.8);
+        } else if (biomeType === 'canyon') {
+          entity = buildProceduralRock(itemSeed, 1.2 + pseudoRandom(itemSeed + 3) * 1.5);
+        }
+
+        if (entity) {
+          entity.position.set(x, y, z);
+          entity.rotation.y = pseudoRandom(itemSeed + 4) * Math.PI * 2;
+          sceneGraphGroup.add(entity);
+        }
+      }
+
+      // 5. Spawn In-scene NPC character
+      npcCharacterMesh = buildNpcCharacter();
+      const npcX = 3;
+      const npcZ = 5;
+      const npcY = getElevation(npcX, npcZ, state.seed, state.params.elevation);
+      npcCharacterMesh.position.set(npcX, npcY, npcZ);
+      sceneGraphGroup.add(npcCharacterMesh);
+
+      // Rebuild UI hierarchy
+      rebuildHierarchyTree();
+      updateTelemetryCounters();
+      logIpc(`[PROCEDURAL:DONE] Spawned ${sceneGraphGroup.children.length} procedural objects into SceneGraph.`);
+    }
+
+    function disposeNodeHierarchy(node) {
+      if (node.geometry) node.geometry.dispose();
+      if (node.material) {
+        if (Array.isArray(node.material)) {
+          node.material.forEach(m => m.dispose());
+        } else {
+          node.material.dispose();
+        }
+      }
+      if (node.children && node.children.length > 0) {
+        node.children.forEach(child => disposeNodeHierarchy(child));
+      }
+    }
+
+    function rebuildHierarchyTree() {
+      const treeContainer = document.getElementById('treeContainer');
+      treeContainer.innerHTML = '';
+
+      // Root terrain
+      createTreeNodeElement('Terrain_Heightmap_Surface', 'ph-mountains', 'Terrain', () => selectSceneNode(terrainMesh));
+
+      // Children inside SceneGraph
+      sceneGraphGroup.children.forEach((child, index) => {
+        let icon = 'ph-cube';
+        if (child.name.includes('Pine')) icon = 'ph-tree-evergreen';
+        if (child.name.includes('Rock')) icon = 'ph-diamonds-four';
+        if (child.name.includes('Cyber')) icon = 'ph-buildings';
+        if (child.name.includes('NPC')) icon = 'ph-user';
+        if (child.name.includes('Mushroom')) icon = 'ph-atom';
+        if (child.name.includes('Pillar')) icon = 'ph-columns';
+
+        createTreeNodeElement(child.name, icon, child.userData.type || 'Object3D', () => selectSceneNode(child));
+      });
+    }
+
+    function createTreeNodeElement(name, iconClass, tag, onClick) {
+      const treeContainer = document.getElementById('treeContainer');
+      const item = document.createElement('div');
+      item.className = "flex items-center justify-between px-2 py-1.5 rounded hover:bg-white/10 cursor-pointer text-mac-text transition group";
+      item.innerHTML = `
+        <div class="flex items-center space-x-2 truncate">
+          <i class="ph ${iconClass} text-mac-textMuted group-hover:text-blue-400 text-sm"></i>
+          <span class="truncate text-[11px] font-medium">${name}</span>
+        </div>
+        <span class="text-[9px] font-mono text-mac-textMuted/60">${tag.split('/')[0]}</span>
+      `;
+      item.addEventListener('click', onClick);
+      treeContainer.appendChild(item);
+    }
+
+    function selectSceneNode(obj) {
+      if (!obj) return;
+      state.selectedNodeId = obj.uuid;
+
+      // Update Selection Box Visual Helper
+      selectionBoxHelper.setFromObject(obj);
+      selectionBoxHelper.visible = true;
+
+      // Update Top HUD Badge
+      const badge = document.getElementById('selectionBadge');
+      badge.classList.remove('hidden');
+      document.getElementById('selectedEntityName').innerText = obj.name;
+
+      // Populate Right Inspector fields
+      document.getElementById('inspectName').innerText = obj.name;
+      document.getElementById('inspectType').innerText = `Type: ${obj.userData.type || 'Mesh3D'}`;
+
+      document.getElementById('inputPosX').value = obj.position.x.toFixed(2);
+      document.getElementById('inputPosY').value = obj.position.y.toFixed(2);
+      document.getElementById('inputPosZ').value = obj.position.z.toFixed(2);
+
+      document.getElementById('txtScaleX').innerText = obj.scale.x.toFixed(2);
+      document.getElementById('txtScaleY').innerText = obj.scale.y.toFixed(2);
+      document.getElementById('txtScaleZ').innerText = obj.scale.z.toFixed(2);
+
+      // Icon update
+      const icon = document.getElementById('inspectIcon');
+      if (obj.name.includes('Pine')) icon.className = 'ph ph-tree-evergreen text-base';
+      else if (obj.name.includes('NPC')) icon.className = 'ph ph-user text-base';
+      else if (obj.name.includes('Rock')) icon.className = 'ph ph-diamonds-four text-base';
+      else icon.className = 'ph ph-cube text-base';
+
+      logIpc(`[SELECTION] Focused node '${obj.name}' (UUID: ${obj.uuid.slice(0, 8)})`);
+    }
+
+    function onKeyDown(e) {
+      switch (e.code) {
+        case 'KeyW':
+        case 'ArrowUp':
+          moveKeys.forward = true;
+          break;
+        case 'KeyS':
+        case 'ArrowDown':
+          moveKeys.backward = true;
+          break;
+        case 'KeyA':
+        case 'ArrowLeft':
+          moveKeys.left = true;
+          break;
+        case 'KeyD':
+        case 'ArrowRight':
+          moveKeys.right = true;
+          break;
+        case 'Escape':
+          if (state.isWalkMode) toggleWalkMode(false);
+          break;
+      }
+    }
+
+    function onKeyUp(e) {
+      switch (e.code) {
+        case 'KeyW':
+        case 'ArrowUp':
+          moveKeys.forward = false;
+          break;
+        case 'KeyS':
+        case 'ArrowDown':
+          moveKeys.backward = false;
+          break;
+        case 'KeyA':
+        case 'ArrowLeft':
+          moveKeys.left = false;
+          break;
+        case 'KeyD':
+        case 'ArrowRight':
+          moveKeys.right = false;
+          break;
+      }
+    }
+
+    function toggleWalkMode(enable) {
+      state.isWalkMode = enable;
+      const walkBtn = document.getElementById('modeWalkBtn');
+      const orbitBtn = document.getElementById('modeOrbitBtn');
+      const crosshair = document.getElementById('crosshair');
+      const banner = document.getElementById('walkModeNotice');
+
+      if (enable) {
+        controls.enabled = false;
+        walkBtn.className = "px-2.5 py-1 rounded-md bg-white/15 text-white font-medium flex items-center space-x-1.5 shadow-sm transition";
+        orbitBtn.className = "px-2.5 py-1 rounded-md text-mac-textMuted hover:text-white font-medium flex items-center space-x-1.5 transition";
+        crosshair.style.display = 'block';
+        banner.classList.remove('hidden');
+
+        // Place camera at eye-level on ground
+        camera.position.set(0, getElevation(0, 0, state.seed, state.params.elevation) + 2.5, 12);
+        camera.lookAt(0, getElevation(0, 0, state.seed, state.params.elevation) + 2.5, 0);
+        logIpc(`[CONTROLS] Switched to First-Person Walk Mode.`);
+      } else {
+        controls.enabled = true;
+        orbitBtn.className = "px-2.5 py-1 rounded-md bg-white/15 text-white font-medium flex items-center space-x-1.5 shadow-sm transition";
+        walkBtn.className = "px-2.5 py-1 rounded-md text-mac-textMuted hover:text-white font-medium flex items-center space-x-1.5 transition";
+        crosshair.style.display = 'none';
+        banner.classList.add('hidden');
+        camera.position.set(28, 22, 34);
+        controls.target.set(0, 4, 0);
+        logIpc(`[CONTROLS] Switched to Orbit Camera Mode.`);
+      }
+    }
+
+    function updateTelemetryCounters() {
+      let triangles = 0;
+      let geometries = 0;
+
+      scene.traverse((object) => {
+        if (object.isMesh && object.geometry) {
+          geometries++;
+          if (object.geometry.index) {
+            triangles += object.geometry.index.count / 3;
+          } else if (object.geometry.attributes.position) {
+            triangles += object.geometry.attributes.position.count / 3;
+          }
+        }
+      });
+
+      state.polyCount = Math.round(triangles);
+      state.drawCalls = geometries;
+
+      document.getElementById('hudPoly').innerText = `${(state.polyCount / 1000).toFixed(1)}k Tris`;
+      document.getElementById('hudDraws').innerText = `${state.drawCalls} Calls`;
+    }
+
+    function logIpc(msg) {
+      const logBox = document.getElementById('ipcConsoleLog');
+      const line = document.createElement('div');
+      line.innerText = msg;
+      if (msg.includes('ERROR')) line.className = 'text-rose-400';
+      else if (msg.includes('DONE') || msg.includes('READY')) line.className = 'text-emerald-400';
+      else if (msg.includes('BUILD') || msg.includes('SELECTION')) line.className = 'text-blue-300';
+      else line.className = 'text-mac-textMuted';
+
+      logBox.appendChild(line);
+      logBox.scrollTop = logBox.scrollHeight;
+    }
+
+    function triggerWorldGenerationFromPrompt(promptText) {
+      if (state.isGenerating) return;
+      state.isGenerating = true;
+
+      const pill = document.getElementById('pipelineStatusPill');
+      const stepText = document.getElementById('pipelineStepText');
+      const progressBar = document.getElementById('pipelineProgressBar');
+      const generateBtn = document.getElementById('generatePromptBtn');
+
+      pill.classList.remove('hidden');
+      pill.classList.add('flex');
+      generateBtn.disabled = true;
+      generateBtn.classList.add('opacity-60');
+
+      logIpc(`[LLM:PIPELINE] Input received: "${promptText}"`);
+
+      // Determine biome from prompt keywords
+      let targetBiome = 'pine';
+      const p = promptText.toLowerCase();
+      if (p.includes('cyber') || p.includes('neon') || p.includes('city') || p.includes('alley')) targetBiome = 'cyber';
+      else if (p.includes('canyon') || p.includes('desert') || p.includes('oasis')) targetBiome = 'canyon';
+      else if (p.includes('alien') || p.includes('spire') || p.includes('mushroom')) targetBiome = 'alien';
+      else if (p.includes('ruin') || p.includes('stone') || p.includes('monolith') || p.includes('dusk')) targetBiome = 'ruins';
+
+      // Step 1: LLM SceneGraph generation
+      stepText.innerText = "LLM Engine: Synthesizing SceneGraph AST...";
+      progressBar.style.width = "30%";
+
+      setTimeout(() => {
+        // Step 2: Zod strict schema validation
+        stepText.innerText = "Zod Schema: Validating node constraints & bounds...";
+        progressBar.style.width = "65%";
+        logIpc(`[ZOD:VALIDATE] 48 node definitions checked against schema.`);
+
+        setTimeout(() => {
+          // Step 3: Procedural asset synthesis
+          stepText.innerText = "AssetPipeline: Baking multi-tier procedural meshes...";
+          progressBar.style.width = "90%";
+
+          setTimeout(() => {
+            // Apply new world
+            state.seed = Math.floor(Math.random() * 900000) + 100000;
+            document.getElementById('currentSeedDisplay').innerText = state.seed;
+            state.activeBiome = targetBiome;
+
+            // Highlight corresponding biome card
+            document.querySelectorAll('.biome-card').forEach(c => {
+              if (c.dataset.biome === targetBiome) {
+                c.className = "biome-card p-2.5 rounded-lg border border-blue-500/40 bg-blue-500/10 cursor-pointer transition flex items-center space-x-3";
+              } else {
+                c.className = "biome-card p-2.5 rounded-lg border border-white/5 bg-mac-card cursor-pointer hover:bg-white/10 transition flex items-center space-x-3";
+              }
+            });
+
+            generateProceduralWorld(targetBiome);
+
+            progressBar.style.width = "100%";
+            stepText.innerText = "Generation complete!";
+
+            setTimeout(() => {
+              pill.classList.add('hidden');
+              pill.classList.remove('flex');
+              generateBtn.disabled = false;
+              generateBtn.classList.remove('opacity-60');
+              state.isGenerating = false;
+            }, 800);
+
+          }, 500);
+        }, 600);
+      }, 700);
+    }
+
+    function sendNpcMessage() {
+      const input = document.getElementById('npcUserInput');
+      const text = input.value.trim();
+      if (!text) return;
+
+      const chatBox = document.getElementById('npcChatBox');
+
+      // Add user message bubble
+      const userMsg = document.createElement('div');
+      userMsg.className = "flex flex-col items-end self-end max-w-[90%]";
+      userMsg.innerHTML = `
+        <div class="text-[10px] text-mac-textMuted mb-0.5 px-1 font-medium">You</div>
+        <div class="bg-blue-600 rounded-2xl rounded-tr-none p-2.5 text-white text-[11px] leading-relaxed shadow-sm">
+          ${text}
+        </div>
+      `;
+      chatBox.appendChild(userMsg);
+      input.value = '';
+      chatBox.scrollTop = chatBox.scrollHeight;
+
+      logIpc(`[NPC:STREAM] Dispatched user prompt to NPC dialogue buffer.`);
+
+      // Simulated streaming reply from NPC
+      setTimeout(() => {
+        const npcMsg = document.createElement('div');
+        npcMsg.className = "flex flex-col items-start max-w-[90%]";
+        npcMsg.innerHTML = `
+          <div class="text-[10px] text-mac-textMuted mb-0.5 px-1 font-medium">Eldrin</div>
+          <div class="bg-white/10 rounded-2xl rounded-tl-none p-2.5 text-white text-[11px] leading-relaxed border border-white/5 npc-bubble">
+            <span class="inline-block animate-pulse">Thinking...</span>
+          </div>
+        `;
+        chatBox.appendChild(npcMsg);
+        chatBox.scrollTop = chatBox.scrollHeight;
+
+        // Stream typing effect
+        const responses = [
+          "The ley lines beneath this procedural terrain fluctuate with every seed change. Watch your step near the ridge.",
+          "I have watched countless biomes compile before my eyes. The trees here have real depth—no cardboard flats in this realm.",
+          "If you seek the high spires, adjust the elevation amplitude in your sidebar. The winds get violent up there.",
+          "My dialogue memory retains our previous exchanges. The compiler guarantees zero context leak across renders."
+        ];
+        const chosen = responses[Math.floor(Math.random() * responses.length)];
+
+        setTimeout(() => {
+          const bubble = npcMsg.querySelector('.npc-bubble');
+          bubble.innerHTML = chosen;
+          chatBox.scrollTop = chatBox.scrollHeight;
+        }, 600);
+
+      }, 400);
+    }
+
+    let frameCount = 0;
+    let lastTime = performance.now();
+
+    function animate() {
+      requestAnimationFrame(animate);
+
+      const delta = clock.getDelta();
+      const time = clock.getElapsedTime();
+
+      // FPS tracking
+      frameCount++;
+      const now = performance.now();
+      if (now - lastTime >= 1000) {
+        state.fps = frameCount;
+        document.getElementById('hudFps').innerText = `${state.fps} FPS`;
+        frameCount = 0;
+        lastTime = now;
+      }
+
+      // First-Person Walk Movement calculations
+      if (state.isWalkMode) {
+        playerVelocity.x -= playerVelocity.x * 10.0 * delta;
+        playerVelocity.z -= playerVelocity.z * 10.0 * delta;
+
+        playerDirection.z = Number(moveKeys.forward) - Number(moveKeys.backward);
+        playerDirection.x = Number(moveKeys.right) - Number(moveKeys.left);
+        playerDirection.normalize();
+
+        const moveSpeed = 18.0;
+        if (moveKeys.forward || moveKeys.backward) playerVelocity.z -= playerDirection.z * moveSpeed * delta;
+        if (moveKeys.left || moveKeys.right) playerVelocity.x -= playerDirection.x * moveSpeed * delta;
+
+        camera.translateX(-playerVelocity.x * delta);
+        camera.translateZ(playerVelocity.z * delta);
+
+        // Ground clamping
+        const groundH = getElevation(camera.position.x, camera.position.z, state.seed, state.params.elevation);
+        camera.position.y = THREE.MathUtils.lerp(camera.position.y, groundH + 2.4, 0.2);
+      } else {
+        controls.update();
+      }
+
+      // Gentle idle animation for NPC
+      if (npcCharacterMesh) {
+        npcCharacterMesh.position.y = getElevation(npcCharacterMesh.position.x, npcCharacterMesh.position.z, state.seed, state.params.elevation) + Math.sin(time * 2.0) * 0.08;
+      }
+
+      // Update camera HUD coordinates
+      document.getElementById('hudCoords').innerText = 
+        `CAM: X:${camera.position.x.toFixed(1)} Y:${camera.position.y.toFixed(1)} Z:${camera.position.z.toFixed(1)}`;
+
+      renderer.render(scene, camera);
+    }
+
+    function onWindowResize() {
+      const container = document.getElementById('viewportContainer');
+      camera.aspect = container.clientWidth / container.clientHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(container.clientWidth, container.clientHeight);
+    }
+
+    window.addEventListener('DOMContentLoaded', () => {
+      initThreeEngine();
+
+      // Sidebar Tabs
+      const tabHierarchy = document.getElementById('tabHierarchyBtn');
+      const tabBiomes = document.getElementById('tabBiomesBtn');
+      const tabGenerators = document.getElementById('tabGeneratorsBtn');
+
+      const panelHierarchy = document.getElementById('panelHierarchy');
+      const panelBiomes = document.getElementById('panelBiomes');
+      const panelGenerators = document.getElementById('panelGenerators');
+
+      function switchLeftTab(activeBtn, activePanel) {
+        [tabHierarchy, tabBiomes, tabGenerators].forEach(b => {
+          b.className = "flex-1 py-1.5 text-xs font-medium rounded-md text-mac-textMuted hover:text-white hover:bg-white/5 flex items-center justify-center space-x-1 transition";
+        });
+        activeBtn.className = "flex-1 py-1.5 text-xs font-semibold rounded-md bg-white/10 text-white flex items-center justify-center space-x-1 transition";
+
+        [panelHierarchy, panelBiomes, panelGenerators].forEach(p => p.classList.add('hidden'));
+        activePanel.classList.remove('hidden');
+      }
+
+      tabHierarchy.addEventListener('click', () => switchLeftTab(tabHierarchy, panelHierarchy));
+      tabBiomes.addEventListener('click', () => switchLeftTab(tabBiomes, panelBiomes));
+      tabGenerators.addEventListener('click', () => switchLeftTab(tabGenerators, panelGenerators));
+
+      // Right Inspector Tabs
+      const tabNode = document.getElementById('tabNodeInspectorBtn');
+      const tabNpc = document.getElementById('tabNpcDialogueBtn');
+      const tabIpc = document.getElementById('tabIpcConsoleBtn');
+
+      const panelNode = document.getElementById('panelNodeInspector');
+      const panelNpc = document.getElementById('panelNpcDialogue');
+      const panelIpc = document.getElementById('panelIpcConsole');
+
+      function switchRightTab(activeBtn, activePanel) {
+        [tabNode, tabNpc, tabIpc].forEach(b => {
+          b.className = "flex-1 py-1.5 text-xs font-medium rounded-md text-mac-textMuted hover:text-white hover:bg-white/5 flex items-center justify-center space-x-1 transition";
+        });
+        activeBtn.className = "flex-1 py-1.5 text-xs font-semibold rounded-md bg-white/10 text-white flex items-center justify-center space-x-1 transition";
+
+        [panelNode, panelNpc, panelIpc].forEach(p => p.classList.add('hidden'));
+        activePanel.classList.remove('hidden');
+      }
+
+      tabNode.addEventListener('click', () => switchRightTab(tabNode, panelNode));
+      tabNpc.addEventListener('click', () => switchRightTab(tabNpc, panelNpc));
+      tabIpc.addEventListener('click', () => switchRightTab(tabIpc, panelIpc));
+
+      // Collapse / Expand Left Sidebar
+      const toggleSidebarBtn = document.getElementById('toggleSidebarBtn');
+      const leftSidebar = document.getElementById('leftSidebar');
+      toggleSidebarBtn.addEventListener('click', () => {
+        leftSidebar.classList.toggle('-ml-72');
+        setTimeout(onWindowResize, 220);
+      });
+
+      // Collapse / Expand Right Inspector
+      const toggleInspectorBtn = document.getElementById('toggleInspectorBtn');
+      const rightInspector = document.getElementById('rightInspector');
+      toggleInspectorBtn.addEventListener('click', () => {
+        rightInspector.classList.toggle('-mr-80');
+        setTimeout(onWindowResize, 220);
+      });
+
+      // Camera mode toggles
+      document.getElementById('modeOrbitBtn').addEventListener('click', () => toggleWalkMode(false));
+      document.getElementById('modeWalkBtn').addEventListener('click', () => toggleWalkMode(true));
+
+      // Wireframe toggle
+      document.getElementById('modeWireframeBtn').addEventListener('click', () => {
+        state.params.wireframe = !state.params.wireframe;
+        if (terrainMesh) terrainMesh.material.wireframe = state.params.wireframe;
+        document.getElementById('modeWireframeBtn').classList.toggle('text-blue-400');
+        logIpc(`[VIEWPORT] Wireframe mode: ${state.params.wireframe}`);
+      });
+
+      // Reset Camera
+      document.getElementById('resetCamBtn').addEventListener('click', () => {
+        camera.position.set(28, 22, 34);
+        controls.target.set(0, 4, 0);
+      });
+
+      // Re-seed button
+      document.getElementById('bakeProceduralBtn').addEventListener('click', () => {
+        state.seed = Math.floor(Math.random() * 900000) + 100000;
+        document.getElementById('currentSeedDisplay').innerText = state.seed;
+        generateProceduralWorld(state.activeBiome);
+      });
+
+      // Biome Cards click
+      document.querySelectorAll('.biome-card').forEach(card => {
+        card.addEventListener('click', () => {
+          const biome = card.dataset.biome;
+          state.activeBiome = biome;
+          document.querySelectorAll('.biome-card').forEach(c => {
+            c.className = "biome-card p-2.5 rounded-lg border border-white/5 bg-mac-card cursor-pointer hover:bg-white/10 transition flex items-center space-x-3";
+          });
+          card.className = "biome-card p-2.5 rounded-lg border border-blue-500/40 bg-blue-500/10 cursor-pointer transition flex items-center space-x-3";
+          generateProceduralWorld(biome);
+        });
+      });
+
+      // Sliders listeners
+      document.getElementById('sliderElevation').addEventListener('input', (e) => {
+        state.params.elevation = parseFloat(e.target.value);
+        document.getElementById('valElevation').innerText = state.params.elevation.toFixed(1);
+        generateProceduralWorld(state.activeBiome);
+      });
+
+      document.getElementById('sliderDensity').addEventListener('input', (e) => {
+        state.params.density = parseInt(e.target.value);
+        document.getElementById('valDensity').innerText = state.params.density;
+        generateProceduralWorld(state.activeBiome);
+      });
+
+      document.getElementById('sliderFog').addEventListener('input', (e) => {
+        state.params.fogDensity = parseFloat(e.target.value);
+        document.getElementById('valFog').innerText = state.params.fogDensity.toFixed(3);
+        if (scene.fog) scene.fog.density = state.params.fogDensity;
+      });
+
+      document.getElementById('sliderSun').addEventListener('input', (e) => {
+        const deg = parseFloat(e.target.value);
+        document.getElementById('valSun').innerText = `${deg}°`;
+        const rad = (deg * Math.PI) / 180;
+        sunLight.position.x = Math.cos(rad) * 55;
+        sunLight.position.y = Math.sin(rad) * 55;
+      });
+
+      // Prompt Generation Handlers
+      document.getElementById('generatePromptBtn').addEventListener('click', () => {
+        const text = document.getElementById('promptInput').value.trim();
+        if (text) triggerWorldGenerationFromPrompt(text);
+      });
+
+      document.getElementById('promptInput').addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          const text = e.target.value.trim();
+          if (text) triggerWorldGenerationFromPrompt(text);
+        }
+      });
+
+      // Quick Chips
+      document.querySelectorAll('.prompt-chip').forEach(chip => {
+        chip.addEventListener('click', () => {
+          const prompt = chip.innerText.trim();
+          document.getElementById('promptInput').value = prompt;
+          triggerWorldGenerationFromPrompt(prompt);
+        });
+      });
+
+      // Selection Badge Deselect
+      document.getElementById('deselectEntityBtn').addEventListener('click', () => {
+        selectionBoxHelper.visible = false;
+        document.getElementById('selectionBadge').classList.add('hidden');
+      });
+
+      // NPC Chat handlers
+      document.getElementById('sendNpcChatBtn').addEventListener('click', sendNpcMessage);
+      document.getElementById('npcUserInput').addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') sendNpcMessage();
+      });
+
+      // Console Clear
+      document.getElementById('clearConsoleBtn').addEventListener('click', () => {
+        document.getElementById('ipcConsoleLog').innerHTML = '';
+      });
+
+      // Manual GC button
+      document.getElementById('forceGcBtn').addEventListener('click', () => {
+        logIpc(`[GC:TRIGGER] Sweeping unreferenced textures & buffer attributes...`);
+        setTimeout(() => logIpc(`[GC:COMPLETE] 0 dangling GPU references detected.`), 150);
+      });
+
+      // Export GLTF Simulation
+      document.getElementById('exportSceneBtn').addEventListener('click', () => {
+        logIpc(`[EXPORT:GLTF] Packaging ${state.drawCalls} meshes to binary .glb buffer...`);
+        setTimeout(() => {
+          logIpc(`[EXPORT:DONE] Scene exported successfully (18.4MB).`);
+        }, 500);
+      });
+    });
+  </script>
+</body>
+</html>
