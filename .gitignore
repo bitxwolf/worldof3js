@@ -50,6 +50,7 @@ app-data/
 coverage/
 
 # Internal planning, specs, and prompt documents
+prompts and plans/
 ARCHITECTURE.md
 BUG_REPORT.md
 EDIT_PROMPT_100.md
@@ -60,3 +61,4 @@ PRD.md
 RULES.md
 TECHNICAL_DEEP_DIVE.md
 .graphifyignore
+
