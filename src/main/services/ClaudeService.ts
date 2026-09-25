@@ -188,10 +188,12 @@ export class ClaudeService {
       const biome = enriched.world?.biome ?? 'forest';
       const systemPrompt = buildCodegenSystemWithExample(biome);
       const userPrompt = buildCodegenUser(enriched);
+      const quality = this.storeService.getSettings()?.quality ?? 'fast';
+      const codegenTokens = quality === 'quality' ? 8192 : 4096;
       let code = await this.executeChat(
         systemPrompt,
         userPrompt,
-        8192,
+        codegenTokens,
         controller.signal
       );
 

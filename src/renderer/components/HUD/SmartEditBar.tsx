@@ -1,3 +1,4 @@
+// DEPRECATED — replaced by UpdatePromptBar. Do not delete.
 import { useState, useEffect, useRef } from 'react';
 import { useUIStore } from '../../store/uiStore';
 import { useWorldStore } from '../../store/worldStore';
@@ -22,6 +23,22 @@ export const SmartEditBar = () => {
     return () => window.removeEventListener('keydown', handleKey);
   }, []);
 
+  useEffect(() => {
+    const handleDone = (e: Event) => {
+      const detail = (e as CustomEvent<{ success: boolean; error?: string }>).detail;
+      if (detail.success) {
+        setLastResult('Edit applied ✓');
+        showNotification('Smart edit applied successfully', 2500, 'success');
+      } else {
+        setLastResult(`Edit failed: ${detail.error ?? 'Unknown error'}`);
+        showNotification(`Edit failed: ${detail.error ?? 'Unknown error'}`, 3000, 'error');
+      }
+      setIsApplying(false);
+    };
+    window.addEventListener('engine:smart-edit-done', handleDone);
+    return () => window.removeEventListener('engine:smart-edit-done', handleDone);
+  }, [showNotification]);
+
   // Only show when a world exists
   if (!sceneGraph) return null;
 
@@ -37,13 +54,11 @@ export const SmartEditBar = () => {
       window.dispatchEvent(new CustomEvent('engine:smart-edit', {
         detail: { instruction: editText }
       }));
-      setLastResult('Edit dispatched');
-      showNotification(`Edit applied: "${editText}"`, 2500, 'success');
+      setLastResult('Sending edit...');
       setEditText('');
     } catch (err) {
       setLastResult(`Failed: ${String(err)}`);
       showNotification('Edit failed — check console', 3000, 'error');
-    } finally {
       setIsApplying(false);
     }
   };

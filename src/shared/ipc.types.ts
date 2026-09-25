@@ -41,6 +41,7 @@ export interface ParseWorldPayload {
 export interface UpdateWorldPayload {
   currentGraph: SceneGraph;
   updatePrompt: string;
+  screenshot?: string;
 }
 
 export interface NPCReplyPayload {

@@ -10,11 +10,13 @@ export const RightInspector = () => {
     setRightInspectorTab,
     selectedNode,
     updateSelectedNodePosition,
+    updateSelectedNodeScale,
     tuningParams,
     setTuningParam,
     ipcLogs,
     clearIpcLogs,
     addIpcLog,
+    generatorMeta,
   } = useUIStore();
 
   const { activeNPC, dialogueHistory, addDialogueMessage } = useNPCStore();
@@ -244,15 +246,39 @@ export const RightInspector = () => {
             <div className="grid grid-cols-3 gap-1.5">
               <div className="bg-black/30 p-1.5 rounded border border-white/5">
                 <span className="text-[9px] text-mac-textMuted block font-mono">SCALE X</span>
-                <span className="font-mono text-white text-xs">{currentNode.scale[0].toFixed(2)}</span>
+                <input
+                  type="number"
+                  step="0.1"
+                  min="0.01"
+                  max="50"
+                  value={currentNode.scale[0].toFixed(2)}
+                  onChange={(e) => updateSelectedNodeScale('x', parseFloat(e.target.value) || 0.01)}
+                  className="w-full bg-transparent font-mono text-white text-xs outline-none"
+                />
               </div>
               <div className="bg-black/30 p-1.5 rounded border border-white/5">
                 <span className="text-[9px] text-mac-textMuted block font-mono">SCALE Y</span>
-                <span className="font-mono text-white text-xs">{currentNode.scale[1].toFixed(2)}</span>
+                <input
+                  type="number"
+                  step="0.1"
+                  min="0.01"
+                  max="50"
+                  value={currentNode.scale[1].toFixed(2)}
+                  onChange={(e) => updateSelectedNodeScale('y', parseFloat(e.target.value) || 0.01)}
+                  className="w-full bg-transparent font-mono text-white text-xs outline-none"
+                />
               </div>
               <div className="bg-black/30 p-1.5 rounded border border-white/5">
                 <span className="text-[9px] text-mac-textMuted block font-mono">SCALE Z</span>
-                <span className="font-mono text-white text-xs">{currentNode.scale[2].toFixed(2)}</span>
+                <input
+                  type="number"
+                  step="0.1"
+                  min="0.01"
+                  max="50"
+                  value={currentNode.scale[2].toFixed(2)}
+                  onChange={(e) => updateSelectedNodeScale('z', parseFloat(e.target.value) || 0.01)}
+                  className="w-full bg-transparent font-mono text-white text-xs outline-none"
+                />
               </div>
             </div>
           </div>
@@ -331,14 +357,16 @@ export const RightInspector = () => {
             </div>
             <div className="bg-black/40 p-2 rounded border border-white/5 space-y-1 text-mac-textMuted">
               <div>
-                <span className="text-white">Generator:</span> ProceduralAssetLibrary.v2
+                <span className="text-white">Generator:</span> {generatorMeta.generator}
               </div>
               <div>
-                <span className="text-white">LOD Strategy:</span> Dynamic Geometry Tier 1
+                <span className="text-white">LOD Strategy:</span> {generatorMeta.lodStrategy}
               </div>
               <div>
                 <span className="text-white">Zod Validation:</span>{' '}
-                <span className="text-emerald-400">Passed (Strict)</span>
+                <span className={generatorMeta.zodValidation === 'Passed (Strict)' ? 'text-emerald-400' : generatorMeta.zodValidation === 'Failed' ? 'text-rose-400' : 'text-mac-textMuted'}>
+                  {generatorMeta.zodValidation}
+                </span>
               </div>
             </div>
           </div>
@@ -463,7 +491,7 @@ export const RightInspector = () => {
           <i className="ph ph-cpu text-blue-400" />
           <span>WebGL 2.0 (Three r160)</span>
         </span>
-        <span className="text-emerald-400 font-mono">● 0 IPC Errors</span>
+        <span className={`font-mono ${ipcLogs.filter(l => l.type === 'error').length > 0 ? 'text-rose-400' : 'text-emerald-400'}`}>● {ipcLogs.filter(l => l.type === 'error').length} IPC Error{ipcLogs.filter(l => l.type === 'error').length !== 1 ? 's' : ''}</span>
       </div>
     </aside>
   );

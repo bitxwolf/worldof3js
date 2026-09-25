@@ -51,7 +51,12 @@ export const SpotlightPromptBar = () => {
       if (window.electronAPI?.parseWorld) {
         setPipelineProgress(45);
         setStepLabel('Parsing narrative into structured 3D SceneGraph...');
-        const parseRes = await window.electronAPI.parseWorld({ text });
+        const { uploadedDocument, uploadedImages } = useWorldStore.getState();
+        const parseRes = await window.electronAPI.parseWorld({
+          text,
+          document: uploadedDocument ?? undefined,
+          images: uploadedImages.length > 0 ? uploadedImages.map((img) => ({ base64: img.base64, mimeType: img.mimeType, tag: img.tag as 'character' | 'scene' | 'texture' })) : undefined,
+        });
         if (parseRes.success && parseRes.data) {
           setPipelineProgress(70);
           setStepLabel('Zod Schema: Validating node constraints & bounds...');

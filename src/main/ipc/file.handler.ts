@@ -330,5 +330,17 @@ export function registerFileHandlers(): void {
       }
     }
   );
+
+  ipcMain.handle('file:autosave-world', async (_, payload: unknown) => {
+    try {
+      const dir = app.getPath('userData');
+      const filePath = path.join(dir, 'autosave.json');
+      await fs.writeFile(filePath, JSON.stringify(payload), 'utf-8');
+      return { success: true, data: filePath };
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      return { success: false, error: { name: 'AutoSaveError', message: error.message } };
+    }
+  });
 }
 

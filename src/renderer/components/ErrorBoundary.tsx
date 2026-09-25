@@ -1,5 +1,6 @@
 import { Component } from 'react';
 import type { ReactNode, ErrorInfo } from 'react';
+import { useUIStore } from '../store/uiStore';
 
 interface ErrorBoundaryProps {
   children: ReactNode;
@@ -27,12 +28,17 @@ export class ViewportErrorBoundary extends Component<ErrorBoundaryProps, ErrorBo
   };
 
   handleExportLogs = (): void => {
-    const logs = (console as unknown as { _history?: string[] })._history?.join('\n') ?? 'No logs captured';
-    const blob = new Blob([logs], { type: 'text/plain' });
+    const logs = useUIStore.getState().ipcLogs;
+    const content = logs.length > 0
+      ? logs.map((entry) => `[${new Date(entry.timestamp).toISOString()}] ${entry.type.toUpperCase()}: ${entry.text}`).join('\n')
+      : 'No logs in store buffer';
+    const blob = new Blob([content], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
-    link.href = URL.createObjectURL(blob);
-    link.download = `worldengine-crash-${Date.now()}.txt`;
+    link.href = url;
+    link.download = `worldengine-crash-${Date.now()}.log`;
     link.click();
+    URL.revokeObjectURL(url);
   };
 
   render(): ReactNode {

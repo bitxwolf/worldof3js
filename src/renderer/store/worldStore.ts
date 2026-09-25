@@ -6,6 +6,12 @@ interface WorldState {
   generatedCode: string | null;
   flags: Record<string, boolean>;
   playerPosition: [number, number, number];
+  isCustomWorldActive: boolean;
+  uploadedDocument: string | null;
+  uploadedImages: Array<{ base64: string; mimeType: string; tag: string }>;
+  setUploadedDocument: (doc: string | null) => void;
+  setUploadedImages: (images: Array<{ base64: string; mimeType: string; tag: string }>) => void;
+  setCustomWorldActive: (v: boolean) => void;
 
   setSceneGraph: (graph: SceneGraph) => void;
   patchSceneGraph: (partialGraph: Partial<SceneGraph>) => void;
@@ -20,6 +26,9 @@ export const useWorldStore = create<WorldState>((set) => ({
   generatedCode: null,
   flags: {},
   playerPosition: [0, 1.7, 0],
+  isCustomWorldActive: false,
+  uploadedDocument: null,
+  uploadedImages: [],
 
   setSceneGraph: (sceneGraph) =>
     set({
@@ -58,11 +67,17 @@ export const useWorldStore = create<WorldState>((set) => ({
   setFlag: (key, value) =>
     set((state) => ({ flags: { ...state.flags, [key]: value } })),
   setPlayerPosition: (playerPosition) => set({ playerPosition }),
+  setCustomWorldActive: (isCustomWorldActive) => set({ isCustomWorldActive }),
+  setUploadedDocument: (uploadedDocument) => set({ uploadedDocument }),
+  setUploadedImages: (uploadedImages) => set({ uploadedImages }),
   resetWorld: () =>
     set({
       sceneGraph: null,
       generatedCode: null,
       flags: {},
       playerPosition: [0, 1.7, 0],
+      isCustomWorldActive: false,
+      uploadedDocument: null,
+      uploadedImages: [],
     }),
 }));

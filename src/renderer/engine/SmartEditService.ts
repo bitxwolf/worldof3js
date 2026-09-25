@@ -1,3 +1,4 @@
+// DEPRECATED — replaced by UpdatePromptBar. Do not delete.
 import * as THREE from 'three';
 import type { AssetMap } from './assets/ProceduralAssetLibrary';
 

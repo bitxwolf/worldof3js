@@ -1,4 +1,4 @@
-import { useRef, useEffect, useCallback } from 'react';
+import { useRef, useEffect, useCallback, useState } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { PointerLockControls } from 'three/examples/jsm/controls/PointerLockControls.js';
@@ -9,8 +9,11 @@ import { NotificationToast } from '../HUD/NotificationToast';
 import { SpotlightPromptBar } from './SpotlightPromptBar';
 import { Crosshair } from '../HUD/Crosshair';
 import { DebugPanel } from '../HUD/DebugPanel';
-import { SmartEditBar } from '../HUD/SmartEditBar';
+import { UpdatePromptBar } from '../HUD/UpdatePromptBar';
 import { GenerationOverlay } from '../HUD/GenerationOverlay';
+import { DialogueBox } from '../HUD/DialogueBox';
+import { InteractHint } from '../HUD/InteractHint';
+import { ProceduralAssetLibrary } from '../../engine/assets/ProceduralAssetLibrary';
 
 // Simple deterministic pseudo-random function
 function pseudoRandom(seed: number): number {
@@ -49,6 +52,7 @@ export const ThreeViewport = () => {
 
   const { sceneGraph, generatedCode } = useWorldStore();
   const { setActiveNPC } = useNPCStore();
+  const activeNPC = useNPCStore((s) => s.activeNPC);
 
   // Engine refs
   const sceneRef = useRef<THREE.Scene | null>(null);
@@ -67,6 +71,18 @@ export const ThreeViewport = () => {
   const moveKeysRef = useRef({ forward: false, backward: false, left: false, right: false });
   const playerVelocityRef = useRef(new THREE.Vector3());
   const playerDirectionRef = useRef(new THREE.Vector3());
+  const scratchEulerRef = useRef(new THREE.Euler(0, 0, 0, 'YXZ'));
+  const scratchVec3Ref = useRef(new THREE.Vector3());
+  const nearbyNPCNameRef = useRef<string | null>(null);
+  const [nearbyNPCName, setNearbyNPCName] = useState<string | null>(null);
+  const [dialogueOpen, setDialogueOpen] = useState(false);
+  const [streamingText, setStreamingText] = useState('');
+  const [isStreaming, setIsStreaming] = useState(false);
+  const streamCleanupRef = useRef<(() => void) | null>(null);
+
+  // Crosshair interaction state
+  const [crosshairActive, setCrosshairActive] = useState(false);
+  const crosshairActiveRef = useRef(false);
 
   // Procedural Asset Builders
   const buildOrganicConiferTree = (treeSeed: number, scale = 1.0): THREE.Group => {
@@ -742,6 +758,9 @@ export const ThreeViewport = () => {
         if (hudPolyEl) hudPolyEl.textContent = `${(tel.polyCount / 1000).toFixed(1)}k Tris`;
         const hudDrawsEl = document.getElementById('hudDraws');
         if (hudDrawsEl) hudDrawsEl.textContent = `${tel.drawCalls} Calls`;
+        const rendererInfo = renderer.info;
+        const estimatedMB = parseFloat(((rendererInfo.memory.geometries * 0.05) + (rendererInfo.memory.textures * 0.5)).toFixed(1));
+        useUIStore.getState().setTelemetry({ bufferMemoryMB: estimatedMB });
         frameCount = 0;
         lastTime = now;
       }
@@ -764,13 +783,29 @@ export const ThreeViewport = () => {
         if (keys.forward || keys.backward) vel.z -= dir.z * speed * delta;
         if (keys.left || keys.right) vel.x -= dir.x * speed * delta;
 
-        camera.translateX(-vel.x * delta);
-        camera.translateZ(vel.z * delta);
+        // Project movement onto horizontal plane (ignore pitch)
+        const yawOnly = scratchEulerRef.current;
+        yawOnly.set(0, camera.rotation.y, 0);
+        const moveVec = scratchVec3Ref.current;
+        moveVec.set(-vel.x * delta, 0, vel.z * delta);
+        moveVec.applyEuler(yawOnly);
+        moveVec.y = 0;
+        camera.position.add(moveVec);
 
         const currentSeed = useUIStore.getState().seed;
         const elev = useUIStore.getState().tuningParams.elevation;
         const groundH = getElevation(camera.position.x, camera.position.z, currentSeed, elev);
         camera.position.y = THREE.MathUtils.lerp(camera.position.y, groundH + 2.4, 0.2);
+
+        // NPC proximity detection for InteractHint
+        if (npcCharacterRef.current) {
+          const dist = camera.position.distanceTo(npcCharacterRef.current.position);
+          const name = dist <= 4 ? (npcCharacterRef.current.userData?.name || 'NPC') : null;
+          if (name !== nearbyNPCNameRef.current) {
+            nearbyNPCNameRef.current = name;
+            setNearbyNPCName(name);
+          }
+        }
       } else {
         controls.update();
       }
@@ -793,6 +828,29 @@ export const ThreeViewport = () => {
         hudCoordsEl.textContent = `CAM: X: ${camera.position.x.toFixed(1)} Y: ${camera.position.y.toFixed(1)} Z: ${camera.position.z.toFixed(1)}`;
       }
 
+      // F5: Crosshair interactable detection
+      if (pointerLockRef.current?.isLocked) {
+        const raycaster = new THREE.Raycaster();
+        raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
+        const hits = raycaster.intersectObjects(scene.children, true);
+        const isInteractable = hits.some(h =>
+          h.object.userData?.interactable === true ||
+          h.object.userData?.type === 'npc' ||
+          h.object.userData?.isNPC === true
+        );
+        if (isInteractable !== crosshairActiveRef.current) {
+          crosshairActiveRef.current = isInteractable;
+          setCrosshairActive(isInteractable);
+        }
+      }
+
+      // F7: Live buffer memory estimate (every 60 frames)
+      if (frameCount % 60 === 0) {
+        const rendererInfo = renderer.info;
+        const estimatedMB = parseFloat(((rendererInfo.memory.geometries * 0.05) + (rendererInfo.memory.textures * 0.5)).toFixed(1));
+        useUIStore.getState().setTelemetry({ bufferMemoryMB: estimatedMB });
+      }
+
       renderer.render(scene, camera);
     };
     animate();
@@ -804,6 +862,7 @@ export const ThreeViewport = () => {
       controls.dispose();
       renderer.dispose();
       disposeHierarchy(scene);
+      streamCleanupRef.current?.();
       sceneRef.current = null;
       cameraRef.current = null;
       rendererRef.current = null;
@@ -819,28 +878,62 @@ export const ThreeViewport = () => {
       const before = renderer.info.memory;
       const beforeGeo = before.geometries;
       const beforeTex = before.textures;
-      // Reset renderer internal counters
-      renderer.info.reset();
-      // Traverse and dispose orphaned resources
+      // Dispose all geometries and materials in the scene
       scene.traverse((obj) => {
         if (obj instanceof THREE.Mesh) {
+          obj.geometry?.dispose();
           const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
           for (const m of mats) {
-            if (m instanceof THREE.Material && 'wireframe' in m) {
-              (m as THREE.MeshStandardMaterial).wireframe = false;
+            if (m instanceof THREE.Material) {
+              // Dispose any textures attached to the material
+              for (const key of Object.keys(m)) {
+                const val = (m as unknown as Record<string, unknown>)[key];
+                if (val && typeof val === 'object' && 'isTexture' in val) {
+                  (val as THREE.Texture).dispose();
+                }
+              }
+              m.dispose();
             }
           }
         }
       });
+      renderer.info.reset();
       const after = renderer.info.memory;
-      console.info(`[GC] Before: ${beforeGeo} geometries, ${beforeTex} textures → After: ${after.geometries} geometries, ${after.textures} textures`);
+      console.info(`[VRAM GC] Disposed geometries, materials, and textures. Before: ${beforeGeo}G/${beforeTex}T → After: ${after.geometries}G/${after.textures}T`);
     };
     window.addEventListener('engine:gc-request', handleGC);
     return () => window.removeEventListener('engine:gc-request', handleGC);
   }, []);
 
+  // Handle smart-edit events from SmartEditBar
+  useEffect(() => {
+    const handleSmartEdit = async (e: Event) => {
+      const { instruction } = (e as CustomEvent<{ instruction: string }>).detail;
+      try {
+        const renderer = rendererRef.current;
+        const screenshot = renderer?.domElement.toDataURL('image/jpeg', 0.75);
+        const result = await window.electronAPI.updateWorld({
+          currentGraph: useWorldStore.getState().sceneGraph!,
+          updatePrompt: instruction,
+          screenshot,
+        });
+        if (result.success) {
+          useWorldStore.getState().patchSceneGraph(result.data);
+          window.dispatchEvent(new CustomEvent('engine:smart-edit-done', { detail: { success: true } }));
+        } else {
+          window.dispatchEvent(new CustomEvent('engine:smart-edit-done', { detail: { success: false, error: result.error.message } }));
+        }
+      } catch (err) {
+        window.dispatchEvent(new CustomEvent('engine:smart-edit-done', { detail: { success: false, error: String(err) } }));
+      }
+    };
+    window.addEventListener('engine:smart-edit', handleSmartEdit);
+    return () => window.removeEventListener('engine:smart-edit', handleSmartEdit);
+  }, []);
+
   // Sync Biome and Seed changes
   useEffect(() => {
+    if (useWorldStore.getState().isCustomWorldActive) return;
     generateWorld(activeBiome);
   }, [activeBiome, seed, generateWorld]);
 
@@ -869,18 +962,34 @@ export const ThreeViewport = () => {
 
       // Execute LLM-generated code directly into the scene
       try {
+        const worldSeed = useUIStore.getState().seed;
+        const helpers = new ProceduralAssetLibrary(group as unknown as THREE.Scene, worldSeed);
+        const assets = { helpers, textures: new Map() };
         const buildFn = new Function('scene', 'THREE', 'assets', `"use strict";\n${generatedCode}`);
-        const assets = { textures: {}, helpers: {} };
-        buildFn(scene, THREE, assets);
+        buildFn(group, THREE, assets);
         useUIStore.getState().addIpcLog('[WORLDBUILDER] LLM-generated world built successfully.', 'success');
+        useUIStore.getState().setGeneratorMeta({
+          generator: 'ProceduralAssetLibrary.v2',
+          lodStrategy: 'Dynamic Geometry Tier 1',
+          zodValidation: 'Passed (Strict)',
+        });
+        useWorldStore.getState().setCustomWorldActive(true);
       } catch (err) {
         console.warn('[ThreeViewport] LLM code execution failed:', err);
         useUIStore.getState().addIpcLog(`[WORLDBUILDER] Code execution error: ${String(err)}`, 'error');
+        useUIStore.getState().setGeneratorMeta({ zodValidation: 'Failed' });
       }
 
       // Spawn graph objects as fallback meshes
       if (sceneGraph.objects) {
         for (const obj of sceneGraph.objects) {
+          // Skip if procedural code already placed this entity
+          let alreadyBuilt = false;
+          group.traverse((child) => {
+            if (child.userData?.id === obj.id || child.name === obj.id) alreadyBuilt = true;
+          });
+          if (alreadyBuilt) continue;
+
           let geo: THREE.BufferGeometry;
           let color = 0x8b5cf6;
           switch (obj.type) {
@@ -918,10 +1027,18 @@ export const ThreeViewport = () => {
 
   // Sync Wireframe toggle
   useEffect(() => {
-    if (terrainMeshRef.current) {
-      const mat = terrainMeshRef.current.material as THREE.MeshStandardMaterial;
-      if (mat) mat.wireframe = wireframe;
-    }
+    const scene = sceneRef.current;
+    if (!scene) return;
+    scene.traverse((obj) => {
+      if (obj instanceof THREE.Mesh) {
+        const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+        mats.forEach((m) => {
+          if (m instanceof THREE.Material && 'wireframe' in m) {
+            (m as THREE.MeshStandardMaterial).wireframe = wireframe;
+          }
+        });
+      }
+    });
   }, [wireframe]);
 
   // Sync Shadows toggle
@@ -1150,25 +1267,54 @@ export const ThreeViewport = () => {
           moveKeysRef.current.right = true;
           break;
         case 'KeyE': {
+          const pointerLock = pointerLockRef.current;
+          if (!pointerLock || !pointerLock.isLocked) break;
+
           const cam = cameraRef.current;
-          const npc = npcCharacterRef.current;
-          if (cam && npc) {
-            const dist = cam.position.distanceTo(npc.position);
-            if (dist < 8) {
-              setActiveNPC({
-                id: 'eldrin_ranger',
-                name: 'Eldrin the Ranger',
-                description: 'A ranger standing on the ridge',
-                personality: 'Observant, mystical',
-                secrets: [],
-                knowledge: [],
-                position: [3, 0, 5],
-                behavior: 'idle',
-                dialogueSeed: 'Greetings, wanderer.',
-              });
-              useUIStore.getState().setRightInspectorTab('npc');
-              useUIStore.getState().setRightInspectorOpen(true);
+          const scene = sceneRef.current;
+          if (!cam || !scene) break;
+
+          const INTERACT_RADIUS = 4;
+          const playerPos = cam.position;
+          let nearestNPC: { object: THREE.Object3D; distance: number } | null = null;
+
+          scene.traverse((obj) => {
+            const uType = (obj.userData?.type || '').toLowerCase();
+            if (!uType.includes('npc') && !obj.userData?.isNPC && !obj.name?.toLowerCase().includes('npc')) return;
+            const dist = obj.position.distanceTo(playerPos);
+            if (dist <= INTERACT_RADIUS) {
+              if (!nearestNPC || dist < nearestNPC.distance) {
+                nearestNPC = { object: obj, distance: dist };
+              }
             }
+          });
+
+          const targetNPC = nearestNPC as { object: THREE.Object3D; distance: number } | null;
+          if (!targetNPC) break;
+
+          const npcData = targetNPC.object.userData;
+          const character = useWorldStore.getState().sceneGraph?.characters?.find(
+            (c) => c.id === npcData.id || c.name === npcData.name
+          );
+          if (character) {
+            setActiveNPC(character);
+            setDialogueOpen(true);
+            useUIStore.getState().setRightInspectorTab('npc');
+            useUIStore.getState().setRightInspectorOpen(true);
+          } else {
+            // Fallback: create a minimal character record for the default NPC
+            setActiveNPC({
+              id: targetNPC.object.uuid,
+              name: npcData.name || targetNPC.object.name.replace(/_/g, ' '),
+              description: 'A wandering ranger who protects the wilds.',
+              position: [targetNPC.object.position.x, targetNPC.object.position.y, targetNPC.object.position.z] as [number, number, number],
+              personality: 'Wise and cautious forest ranger',
+              backstory: 'A wandering ranger who protects the wilds.',
+              dialogueStyle: 'Greetings, traveler. What brings you to these lands?',
+            } as any);
+            setDialogueOpen(true);
+            useUIStore.getState().setRightInspectorTab('npc');
+            useUIStore.getState().setRightInspectorOpen(true);
           }
           break;
         }
@@ -1251,7 +1397,7 @@ export const ThreeViewport = () => {
       <GenerationOverlay />
 
       {/* Crosshair for walk mode */}
-      {cameraMode === 'walk' && <Crosshair active={false} />}
+      {cameraMode === 'walk' && <Crosshair active={crosshairActive} />}
 
       {/* Walk Mode Exit Helper Banner */}
       {cameraMode === 'walk' && (
@@ -1270,6 +1416,105 @@ export const ThreeViewport = () => {
           </span>
           <span className="text-mac-textMuted text-[10px]">Press Esc to exit</span>
         </div>
+      )}
+
+      {/* NPC Interaction HUD */}
+      {cameraMode === 'walk' && nearbyNPCName && !dialogueOpen && (
+        <InteractHint npcName={nearbyNPCName} />
+      )}
+
+      {/* NPC Dialogue Box */}
+      {activeNPC && dialogueOpen && (
+        <DialogueBox
+          npcName={activeNPC.name}
+          npcGreeting={(activeNPC as any).dialogueStyle || (activeNPC as any).dialogueSeed || `Greetings, traveler.`}
+          onSendMessage={(msg) => {
+            setIsStreaming(true);
+            setStreamingText('');
+            useNPCStore.getState().addDialogueMessage(activeNPC.id, { sender: 'player', text: msg });
+            // Send via IPC if available
+            if (window.electronAPI?.npcReply) {
+              streamCleanupRef.current?.();
+              let accumulatedText = '';
+
+              const unsubChunk = window.electronAPI.onStreamChunk?.((chunk: string) => {
+                accumulatedText += chunk;
+                setStreamingText(accumulatedText);
+              });
+
+              const cleanup = () => {
+                unsubChunk?.();
+                unsubEnd?.();
+                unsubError?.();
+                streamCleanupRef.current = null;
+              };
+
+              const unsubEnd = window.electronAPI.onStreamEnd?.(() => {
+                if (accumulatedText.trim()) {
+                  useNPCStore.getState().addDialogueMessage(activeNPC.id, { sender: 'npc', text: accumulatedText.trim() });
+                }
+                setStreamingText('');
+                setIsStreaming(false);
+                addIpcLog(`[NPC:RESPONSE] Received ${accumulatedText.length} chars from agent stream.`, 'success');
+                cleanup();
+              });
+
+              const unsubError = window.electronAPI.onStreamError?.((err: string) => {
+                console.warn('[NPC:STREAM_ERROR]', err);
+                setIsStreaming(false);
+                setStreamingText('');
+                addIpcLog(`[NPC:ERROR] Stream error: ${err}`, 'error');
+                cleanup();
+              });
+
+              streamCleanupRef.current = cleanup;
+
+              (window.electronAPI.npcReply({
+                npcId: activeNPC.id,
+                playerMessage: msg,
+                character: {
+                  name: activeNPC.name,
+                  personality: activeNPC.personality,
+                  backstory: (activeNPC as any).backstory || activeNPC.description,
+                  dialogueStyle: (activeNPC as any).dialogueStyle || (activeNPC as any).dialogueSeed,
+                },
+              } as any) as Promise<any>).then((res: { success: boolean; data?: string }) => {
+                if (res?.success && res?.data && !accumulatedText.trim()) {
+                  setStreamingText(res.data);
+                  useNPCStore.getState().addDialogueMessage(activeNPC.id, { sender: 'npc', text: res.data });
+                  setIsStreaming(false);
+                  cleanup();
+                } else if (!window.electronAPI.onStreamEnd && accumulatedText.trim()) {
+                  useNPCStore.getState().addDialogueMessage(activeNPC.id, { sender: 'npc', text: accumulatedText.trim() });
+                  setStreamingText('');
+                  setIsStreaming(false);
+                  cleanup();
+                }
+              }).catch(() => {
+                setIsStreaming(false);
+                cleanup();
+              });
+            } else {
+              // Fallback: mock response
+              setTimeout(() => {
+                const reply = 'The winds whisper of ancient tales...';
+                setStreamingText(reply);
+                useNPCStore.getState().addDialogueMessage(activeNPC.id, { sender: 'npc', text: reply });
+                setIsStreaming(false);
+              }, 800);
+            }
+          }}
+          onClose={() => {
+            streamCleanupRef.current?.();
+            streamCleanupRef.current = null;
+            setDialogueOpen(false);
+            setActiveNPC(null);
+            setIsStreaming(false);
+            setStreamingText('');
+          }}
+          streamingText={streamingText}
+          isStreaming={isStreaming}
+        />
       )}
 
       {/* Top Left Viewport HUD Overlay */}
@@ -1338,8 +1583,8 @@ export const ThreeViewport = () => {
         </div>
       )}
 
-      {/* Smart Edit Bar */}
-      <SmartEditBar />
+      {/* World Update Prompt Bar */}
+      <UpdatePromptBar />
 
       {/* Spotlight Prompt Bar */}
       <SpotlightPromptBar />

@@ -40,6 +40,7 @@ declare global {
       saveWorld: (w: SavedWorld) => Promise<IPCResult<string>>;
       loadWorld: () => Promise<IPCResult<SavedWorld>>;
       exportHtml: (g: SceneGraph) => Promise<IPCResult<string>>;
+      autoSaveWorld: (payload: unknown) => Promise<IPCResult<string>>;
 
       // Images
       processImage: (b64: string, mime: string) => Promise<IPCResult<ProcessedImage>>;

@@ -72,6 +72,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   exportHtml: (graph: unknown) =>
     ipcRenderer.invoke(IPC_CHANNELS.FILE_EXPORT_HTML, graph),
 
+  autoSaveWorld: (payload: unknown) =>
+    ipcRenderer.invoke('file:autosave-world', payload),
+
   // Images
   processImage: (base64: string, mimeType: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.IMAGE_PROCESS, { base64, mimeType }),

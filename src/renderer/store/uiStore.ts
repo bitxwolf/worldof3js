@@ -89,6 +89,13 @@ interface UIState {
     bufferMemoryMB: number;
   };
 
+  generatorMeta: {
+    generator: string;
+    lodStrategy: string;
+    zodValidation: string;
+  };
+  setGeneratorMeta: (meta: Partial<{ generator: string; lodStrategy: string; zodValidation: string }>) => void;
+
   // IPC Telemetry Logs
   ipcLogs: IpcLogEntry[];
 
@@ -130,6 +137,7 @@ interface UIState {
   setSelectedNode: (node: SelectedNodeInfo | null) => void;
   setSceneHierarchy: (items: SceneHierarchyItem[]) => void;
   updateSelectedNodePosition: (axis: 'x' | 'y' | 'z', value: number) => void;
+  updateSelectedNodeScale: (axis: 'x' | 'y' | 'z', value: number) => void;
 
   setTelemetry: (t: Partial<UIState['telemetry']>) => void;
   addIpcLog: (text: string, type?: IpcLogEntry['type']) => void;
@@ -184,7 +192,13 @@ export const useUIStore = create<UIState>((set) => ({
     polyCount: 18400,
     drawCalls: 42,
     camCoords: 'CAM: X: 28.0 Y: 22.0 Z: 34.0',
-    bufferMemoryMB: 34.2,
+    bufferMemoryMB: 0,
+  },
+
+  generatorMeta: {
+    generator: 'None',
+    lodStrategy: 'None',
+    zodValidation: 'Not run',
   },
 
   ipcLogs: [
@@ -267,6 +281,20 @@ export const useUIStore = create<UIState>((set) => ({
         },
       };
     }),
+  updateSelectedNodeScale: (axis, value) =>
+    set((state) => {
+      if (!state.selectedNode) return state;
+      const scale: [number, number, number] = [...state.selectedNode.scale];
+      if (axis === 'x') scale[0] = value;
+      else if (axis === 'y') scale[1] = value;
+      else if (axis === 'z') scale[2] = value;
+      return {
+        selectedNode: {
+          ...state.selectedNode,
+          scale,
+        },
+      };
+    }),
 
   setTelemetry: (t) =>
     set((state) => ({
@@ -274,6 +302,11 @@ export const useUIStore = create<UIState>((set) => ({
         ...state.telemetry,
         ...t,
       },
+    })),
+
+  setGeneratorMeta: (meta) =>
+    set((state) => ({
+      generatorMeta: { ...state.generatorMeta, ...meta },
     })),
 
   addIpcLog: (text, type = 'info') =>
