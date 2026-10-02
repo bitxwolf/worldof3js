@@ -1,8 +1,21 @@
-# 🌍 Story Engine
+<div align="center">
+  <img src="assets/logo.jpg" alt="Orbis Logo" width="120" />
 
-> **Describe a world. Walk through it.**
+  # Orbis
 
-Story Engine is an open-source desktop application that converts narrative text, images, and story documents into fully interactive, explorable **3D worlds** — powered by [Claude AI](https://anthropic.com) and [Three.js](https://threejs.org).
+  **Describe a world. Walk through it.**
+
+  [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
+  [![Electron](https://img.shields.io/badge/Electron-28-47848F?logo=electron)](https://electronjs.org)
+  [![Three.js](https://img.shields.io/badge/Three.js-r160-black?logo=threedotjs)](https://threejs.org)
+  [![Claude AI](https://img.shields.io/badge/Claude-3.7-orange)](https://anthropic.com)
+
+  <img src="assets/banner.jpg" alt="Orbis — AI-Powered 3D World Creation Studio" width="100%" />
+</div>
+
+---
+
+Orbis is an open-source desktop application that converts narrative text, images, and story documents into fully interactive, explorable **3D worlds** — powered by [Claude AI](https://anthropic.com) and [Three.js](https://threejs.org).
 
 No coding. No 3D modelling. No game engine expertise required.
 
@@ -14,7 +27,7 @@ You type (or upload) a description like:
 
 > *"A foggy medieval village at dusk. Cobblestone streets, a blacksmith forge glowing orange, three NPCs going about their evening."*
 
-Story Engine builds it — live — as a walkable 3D world you can explore in first-person.
+Orbis builds it — live — as a walkable 3D world you can explore in first-person.
 
 ```
 Your Story Description
@@ -44,6 +57,39 @@ Your Story Description
 - **First-person exploration** — WASD + mouse, crosshair HUD, interaction prompts
 - **World library** — save and reload generated worlds
 - **Inspector panel** — view the raw scene graph JSON for any generated world
+
+---
+
+## 📸 Screenshots
+
+<table>
+  <tr>
+    <td align="center" width="50%">
+      <img src="assets/screenshots/sc_pine_forest.png" alt="AI-generated pine forest with scene inspector" /><br/>
+      <sub><b>AI World Generation</b> — Pine forest with scene graph inspector</sub>
+    </td>
+    <td align="center" width="50%">
+      <img src="assets/screenshots/sc_red_desert.png" alt="Red sandstone canyon terrain" /><br/>
+      <sub><b>Terrain Diversity</b> — Red desert canyon, procedurally generated</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" width="50%">
+      <img src="assets/screenshots/sc_mushroom_world.png" alt="Bioluminescent mushroom world" /><br/>
+      <sub><b>Exotic Biomes</b> — Extraterrestrial bioluminescent landscape</sub>
+    </td>
+    <td align="center" width="50%">
+      <img src="assets/screenshots/sc_npc_stream.png" alt="NPC Stream panel with live AI dialogue" /><br/>
+      <sub><b>NPC System</b> — Live AI dialogue via the NPC Stream panel</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" colspan="2">
+      <img src="assets/screenshots/sc_biomes.png" alt="Biomes browser with saved procedural worlds" width="50%" /><br/>
+      <sub><b>Biome Browser</b> — Browse and switch between saved procedural worlds</sub>
+    </td>
+  </tr>
+</table>
 
 ---
 
@@ -98,14 +144,14 @@ Output is in `dist/`.
 | 1 — LLM Brain | ✅ Done | Text → scene graph → validated JSON |
 | 2 — World Engine | ✅ Done | Scene graph → walkable 3D world |
 | 3 — Characters | ✅ Done | NPCs, AI dialogue, image-to-asset pipeline |
-| 4 — Story Engine | 🔄 In Progress | Events, triggers, document parsing, live world updates |
+| 4 — Orbis Engine | 🔄 In Progress | Events, triggers, document parsing, live world updates |
 | 5 — Package & Ship | ⬜ Planned | Windows EXE, export, polish |
 
 ---
 
 ## 📐 Architecture
 
-Story Engine uses a clean **Electron main/renderer process split**:
+Orbis uses a clean **Electron main/renderer process split**:
 
 - **Main process (Node.js)** — Claude API calls, file system, API key storage, image processing
 - **Renderer process (Chromium + React)** — UI, Three.js engine, state management
