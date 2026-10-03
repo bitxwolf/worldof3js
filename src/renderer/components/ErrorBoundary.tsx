@@ -36,7 +36,7 @@ export class ViewportErrorBoundary extends Component<ErrorBoundaryProps, ErrorBo
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `worldengine-crash-${Date.now()}.log`;
+    link.download = `orbis-crash-${Date.now()}.log`;
     link.click();
     URL.revokeObjectURL(url);
   };

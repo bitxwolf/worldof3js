@@ -14,6 +14,10 @@ import {
   ValidationError,
 } from '../../shared/errors';
 import {
+  MAX_PROMPT_LENGTH,
+  MAX_NPC_CONVERSATION_TURNS,
+} from '../../shared/constants';
+import {
   WORLD_PARSER_SYSTEM,
   buildWorldParserUser,
 } from '../../shared/prompts/world-parser.prompt';
@@ -42,20 +46,29 @@ export class ClaudeService {
   constructor(private readonly storeService: IStoreService) {}
 
   private isOpenRouter(): boolean {
-    const apiKey = this.storeService.getApiKey();
+    const settings = this.storeService.getSettings();
+    if (settings.activeProvider) {
+      return settings.activeProvider === 'openai';
+    }
+    const apiKey = (this.storeService.getApiKey() || settings.apiKey || '').trim();
     return apiKey.startsWith('sk-or-') || apiKey.includes('openrouter');
   }
 
   private getModel(): string {
     const settings = this.storeService.getSettings();
-    const model = settings.model || '';
+    const isAnthropic = settings.activeProvider
+      ? settings.activeProvider === 'anthropic'
+      : !this.isOpenRouter();
+    const model = isAnthropic
+      ? (settings.anthropicModel || settings.model || '')
+      : (settings.openaiModel || settings.model || '');
     
-    if (this.isOpenRouter()) {
+    if (!isAnthropic) {
       // If it's already an OpenRouter-style model with '/', use it directly
       if (model.includes('/')) return model;
       // Map known aliases
       if (model === 'claude-opus-5') return 'anthropic/claude-3-opus';
-      return 'anthropic/claude-3.5-sonnet';
+      return model || 'anthropic/claude-3.5-sonnet';
     }
     
     // Direct Anthropic SDK — reject OpenRouter model identifiers
@@ -73,27 +86,42 @@ export class ClaudeService {
     maxTokens: number = 4096,
     signal?: AbortSignal
   ): Promise<string> {
-    const apiKey = this.storeService.getApiKey();
+    const settings = this.storeService.getSettings();
+    const isAnthropic = settings.activeProvider
+      ? settings.activeProvider === 'anthropic'
+      : !this.isOpenRouter();
+
+    const apiKey = isAnthropic
+      ? (settings.anthropicApiKey || this.storeService.getApiKey())
+      : (settings.openaiApiKey || this.storeService.getApiKey());
+    const model = isAnthropic
+      ? (settings.anthropicModel || this.getModel())
+      : (settings.openaiModel || this.getModel());
+    const baseUrl = isAnthropic ? 'https://api.anthropic.com' : (settings.openaiBaseUrl || 'https://openrouter.ai/api/v1');
+
     if (!apiKey || !apiKey.trim()) {
       throw new APIKeyMissingError();
     }
 
-    if (this.isOpenRouter()) {
-      const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    const cappedTokens = Math.min(Math.max(1, maxTokens), 8192);
+
+    if (!isAnthropic) {
+      const endpoint = `${baseUrl.replace(/\/$/, '')}/chat/completions`;
+      const response = await fetch(endpoint, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${apiKey.trim()}`,
           'Content-Type': 'application/json',
-          'HTTP-Referer': 'https://story-engine.app',
-          'X-Title': 'Story Engine',
+          'HTTP-Referer': 'https://orbis.app',
+          'X-Title': 'Orbis',
         },
         body: JSON.stringify({
-          model: this.getModel(),
+          model,
           messages: [
             { role: 'system', content: systemPrompt },
             { role: 'user', content: userPrompt },
           ],
-          max_tokens: maxTokens,
+          max_tokens: cappedTokens,
           temperature: 0.7,
         }),
         signal,
@@ -118,8 +146,8 @@ export class ClaudeService {
     const client = new Anthropic({ apiKey: apiKey.trim() });
     const response = await client.messages.create(
       {
-        model: this.getModel(),
-        max_tokens: maxTokens,
+        model,
+        max_tokens: cappedTokens,
         system: systemPrompt,
         messages: [{ role: 'user', content: userPrompt }],
       },
@@ -134,6 +162,10 @@ export class ClaudeService {
   }
 
   async parseWorld(payload: ParseWorldPayload): Promise<SceneGraph> {
+    if (payload.text && payload.text.length > MAX_PROMPT_LENGTH) {
+      throw new Error(`Input prompt exceeds maximum allowed length of ${MAX_PROMPT_LENGTH} characters`);
+    }
+
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 45000);
 
@@ -180,6 +212,14 @@ export class ClaudeService {
   }
 
   async generateCode(graph: SceneGraph | EnrichedSceneGraph): Promise<string> {
+    if (graph.world?.description && graph.world.description.length > MAX_PROMPT_LENGTH) {
+      graph.world.description = graph.world.description.slice(0, MAX_PROMPT_LENGTH);
+    }
+    const rawPrompt = (graph as any).prompt || (graph as any).text;
+    if (rawPrompt && typeof rawPrompt === 'string' && rawPrompt.length > MAX_PROMPT_LENGTH) {
+      throw new Error(`Input prompt exceeds maximum allowed length of ${MAX_PROMPT_LENGTH} characters`);
+    }
+
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 60000);
 
@@ -208,6 +248,10 @@ export class ClaudeService {
   }
 
   async updateWorld(payload: UpdateWorldPayload): Promise<Partial<SceneGraph>> {
+    if (payload.updatePrompt && payload.updatePrompt.length > MAX_PROMPT_LENGTH) {
+      throw new Error(`Update prompt exceeds maximum allowed length of ${MAX_PROMPT_LENGTH} characters`);
+    }
+
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 45000);
 
@@ -224,7 +268,29 @@ export class ClaudeService {
       );
 
       const cleaned = extractJson(rawText);
-      return JSON.parse(cleaned) as Partial<SceneGraph>;
+
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(cleaned);
+      } catch (jsonErr) {
+        throw new LLMParseError(
+          `Failed to parse LLM update response as JSON: ${jsonErr instanceof Error ? jsonErr.message : String(jsonErr)}`,
+          rawText
+        );
+      }
+
+      const validated = SceneGraphSchema.partial().safeParse(parsed);
+      if (!validated.success) {
+        const issuesSummary = validated.error.issues
+          .map((i) => `${i.path.join('.')}: ${i.message}`)
+          .join(', ');
+        throw new LLMParseError(
+          `Update world failed schema validation: ${issuesSummary}`,
+          rawText
+        );
+      }
+
+      return validated.data;
     } finally {
       clearTimeout(timer);
     }
@@ -234,107 +300,153 @@ export class ClaudeService {
     payload: NPCReplyPayload,
     onChunk: (chunk: string) => void
   ): Promise<void> {
-    const apiKey = this.storeService.getApiKey();
+    const settings = this.storeService.getSettings();
+    const isAnthropic = settings.activeProvider
+      ? settings.activeProvider === 'anthropic'
+      : !this.isOpenRouter();
+
+    const apiKey = isAnthropic
+      ? (settings.anthropicApiKey || this.storeService.getApiKey())
+      : (settings.openaiApiKey || this.storeService.getApiKey());
+    const model = isAnthropic
+      ? (settings.anthropicModel || this.getModel())
+      : (settings.openaiModel || this.getModel());
+    const baseUrl = isAnthropic ? 'https://api.anthropic.com' : (settings.openaiBaseUrl || 'https://openrouter.ai/api/v1');
+
     if (!apiKey || !apiKey.trim()) {
       throw new APIKeyMissingError();
     }
 
-    let systemPrompt = `You are an NPC in an interactive Three.js world. Stay in character, speak in first person, and keep answers to 2-3 sentences.`;
-    if (payload.character) {
-      systemPrompt += `\nYour name is ${payload.character.name}.`;
-      systemPrompt += `\nPersonality: ${payload.character.personality}`;
-      if (payload.character.backstory) {
-        systemPrompt += `\nBackstory: ${payload.character.backstory}`;
-      }
-      if (payload.character.knowledge && payload.character.knowledge.length > 0) {
-        systemPrompt += `\nKnowledge: ${payload.character.knowledge.join('; ')}`;
-      }
-      if (payload.character.secrets && payload.character.secrets.length > 0) {
-        systemPrompt += `\nGuarded Secrets: ${payload.character.secrets.join('; ')} (Only reveal hints if the player is clever or persistent)`;
-      }
-      if (payload.character.dialogueStyle) {
-        systemPrompt += `\nDialogue Style: ${payload.character.dialogueStyle}`;
-      }
-    }
-    if (payload.worldLore) {
-      systemPrompt += `\nWorld Lore: ${payload.worldLore}`;
+    if (payload.playerMessage && payload.playerMessage.length > MAX_PROMPT_LENGTH) {
+      throw new Error(`Player message exceeds maximum allowed length of ${MAX_PROMPT_LENGTH} characters`);
     }
 
-    const messages = payload.dialogueHistory ? [...payload.dialogueHistory] : [];
-    messages.push({ role: 'user', content: payload.playerMessage });
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 60000);
 
-    if (this.isOpenRouter()) {
-      const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${apiKey.trim()}`,
-          'Content-Type': 'application/json',
-          'HTTP-Referer': 'https://story-engine.app',
-          'X-Title': 'Story Engine',
-        },
-        body: JSON.stringify({
-          model: this.getModel(),
-          messages: [
-            { role: 'system', content: systemPrompt },
-            ...messages,
-          ],
-          max_tokens: 512,
-          stream: true,
-        }),
-      });
-
-      if (!response.ok || !response.body) {
-        const errText = await response.text();
-        throw new Error(`OpenRouter streaming error (${response.status}): ${errText}`);
-      }
-
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder('utf-8');
-      let buffer = '';
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (!trimmed || trimmed.startsWith(':')) continue;
-          if (trimmed === 'data: [DONE]') return;
-          if (trimmed.startsWith('data: ')) {
-            try {
-              const parsed = JSON.parse(trimmed.slice(6));
-              const delta = parsed.choices?.[0]?.delta?.content;
-              if (delta) {
-                onChunk(delta);
-              }
-            } catch {
-              // ignore partial chunk json errors
-            }
-          }
+    try {
+      let systemPrompt = `You are an NPC in an interactive Three.js world. Stay in character, speak in first person, and keep answers to 2-3 sentences.`;
+      if (payload.character) {
+        systemPrompt += `\nYour name is ${payload.character.name}.`;
+        systemPrompt += `\nPersonality: ${payload.character.personality}`;
+        if (payload.character.backstory) {
+          systemPrompt += `\nBackstory: ${payload.character.backstory}`;
+        }
+        if (payload.character.knowledge && payload.character.knowledge.length > 0) {
+          systemPrompt += `\nKnowledge: ${payload.character.knowledge.join('; ')}`;
+        }
+        if (payload.character.secrets && payload.character.secrets.length > 0) {
+          systemPrompt += `\nGuarded Secrets: ${payload.character.secrets.join('; ')} (Only reveal hints if the player is clever or persistent)`;
+        }
+        if (payload.character.dialogueStyle) {
+          systemPrompt += `\nDialogue Style: ${payload.character.dialogueStyle}`;
         }
       }
-      return;
-    }
-
-    // Direct Anthropic SDK
-    const client = new Anthropic({ apiKey: apiKey.trim() });
-    const stream = await client.messages.stream({
-      model: this.getModel(),
-      max_tokens: 512,
-      system: systemPrompt,
-      messages: messages as Anthropic.MessageParam[],
-    });
-
-    for await (const event of stream) {
-      if (
-        event.type === 'content_block_delta' &&
-        event.delta.type === 'text_delta'
-      ) {
-        onChunk(event.delta.text);
+      if (payload.worldLore) {
+        systemPrompt += `\nWorld Lore: ${payload.worldLore}`;
       }
+
+      const history = payload.dialogueHistory
+        ? payload.dialogueHistory.slice(-MAX_NPC_CONVERSATION_TURNS)
+        : [];
+      const messages = [...history, { role: 'user' as const, content: payload.playerMessage }];
+
+      if (!isAnthropic) {
+        const endpoint = `${baseUrl.replace(/\/$/, '')}/chat/completions`;
+        const response = await fetch(endpoint, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${apiKey.trim()}`,
+            'Content-Type': 'application/json',
+            'HTTP-Referer': 'https://orbis.app',
+            'X-Title': 'Orbis',
+          },
+          body: JSON.stringify({
+            model,
+            messages: [
+              { role: 'system', content: systemPrompt },
+              ...messages,
+            ],
+            max_tokens: 512,
+            stream: true,
+          }),
+          signal: controller.signal,
+        });
+
+        if (!response.ok || !response.body) {
+          const errText = await response.text();
+          throw new Error(`OpenRouter streaming error (${response.status}): ${errText}`);
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder('utf-8');
+        let buffer = '';
+
+        try {
+          while (true) {
+            if (controller.signal.aborted) {
+              throw new Error('NPC reply stream timed out after 60 seconds');
+            }
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop() || '';
+
+            for (const line of lines) {
+              const trimmed = line.trim();
+              if (!trimmed || trimmed.startsWith(':')) continue;
+              if (trimmed === 'data: [DONE]') return;
+              if (trimmed.startsWith('data: ')) {
+                try {
+                  const parsed = JSON.parse(trimmed.slice(6));
+                  const delta = parsed.choices?.[0]?.delta?.content;
+                  if (delta) {
+                    onChunk(delta);
+                  }
+                } catch {
+                  // ignore partial chunk json errors
+                }
+              }
+            }
+          }
+        } catch (streamErr: unknown) {
+          if (controller.signal.aborted) {
+            throw new Error('NPC reply stream timed out after 60 seconds');
+          }
+          throw streamErr;
+        } finally {
+          try {
+            reader.releaseLock();
+          } catch {
+            // ignore release lock issues
+          }
+        }
+        return;
+      }
+
+      // Direct Anthropic SDK
+      const client = new Anthropic({ apiKey: apiKey.trim() });
+      const stream = await client.messages.stream(
+        {
+          model,
+          max_tokens: 512,
+          system: systemPrompt,
+          messages: messages as Anthropic.MessageParam[],
+        },
+        { signal: controller.signal }
+      );
+
+      for await (const event of stream) {
+        if (
+          event.type === 'content_block_delta' &&
+          event.delta.type === 'text_delta'
+        ) {
+          onChunk(event.delta.text);
+        }
+      }
+    } finally {
+      clearTimeout(timer);
     }
   }
 }

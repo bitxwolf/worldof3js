@@ -41,6 +41,8 @@ export const ThreeViewport = () => {
     setCameraMode,
     wireframe,
     shadowsEnabled,
+    isNight,
+    toggleDayNight,
     seed,
     activeBiome,
     tuningParams,
@@ -61,6 +63,8 @@ export const ThreeViewport = () => {
   const controlsRef = useRef<OrbitControls | null>(null);
   const terrainMeshRef = useRef<THREE.Mesh | null>(null);
   const sunLightRef = useRef<THREE.DirectionalLight | null>(null);
+  const sunMeshRef = useRef<THREE.Group | null>(null);
+  const starFieldRef = useRef<THREE.Points | null>(null);
   const ambientLightRef = useRef<THREE.AmbientLight | null>(null);
   const sceneGraphGroupRef = useRef<THREE.Group | null>(null);
   const selectionBoxRef = useRef<THREE.BoxHelper | null>(null);
@@ -71,7 +75,6 @@ export const ThreeViewport = () => {
   const moveKeysRef = useRef({ forward: false, backward: false, left: false, right: false });
   const playerVelocityRef = useRef(new THREE.Vector3());
   const playerDirectionRef = useRef(new THREE.Vector3());
-  const scratchEulerRef = useRef(new THREE.Euler(0, 0, 0, 'YXZ'));
   const scratchVec3Ref = useRef(new THREE.Vector3());
   const nearbyNPCNameRef = useRef<string | null>(null);
   const [nearbyNPCName, setNearbyNPCName] = useState<string | null>(null);
@@ -668,6 +671,78 @@ export const ThreeViewport = () => {
     scene.add(sunLight);
     sunLightRef.current = sunLight;
 
+    // 5b. Default Visible Sun & Celestial Sky
+    const sunGroup = new THREE.Group();
+    sunGroup.name = 'Celestial_Sun';
+    sunGroup.userData = { id: 'default_sun_mesh', name: 'Default Sun', type: 'Lights/SunMesh' };
+
+    // Glowing sun core sphere
+    const sunCoreGeo = new THREE.SphereGeometry(7, 32, 32);
+    const sunCoreMat = new THREE.MeshBasicMaterial({
+      color: 0xfffae0,
+      fog: false,
+    });
+    const sunCore = new THREE.Mesh(sunCoreGeo, sunCoreMat);
+    sunCore.name = 'Sun_Core';
+    sunGroup.add(sunCore);
+
+    // Atmospheric corona glow halo
+    const coronaGeo = new THREE.SphereGeometry(11, 24, 24);
+    const coronaMat = new THREE.MeshBasicMaterial({
+      color: 0xffe082,
+      transparent: true,
+      opacity: 0.35,
+      side: THREE.BackSide,
+      fog: false,
+    });
+    const corona = new THREE.Mesh(coronaGeo, coronaMat);
+    corona.name = 'Sun_Corona';
+    sunGroup.add(corona);
+
+    // Moon mesh for night mode
+    const moonGeo = new THREE.SphereGeometry(5, 32, 32);
+    const moonMat = new THREE.MeshBasicMaterial({
+      color: 0xd6e4ff,
+      fog: false,
+    });
+    const moon = new THREE.Mesh(moonGeo, moonMat);
+    moon.name = 'Celestial_Moon';
+    moon.visible = false;
+    sunGroup.add(moon);
+
+    sunGroup.position.set(80, 115, 60);
+    scene.add(sunGroup);
+    sunMeshRef.current = sunGroup;
+
+    // 5c. Night Starfield
+    const starCount = 1200;
+    const starGeo = new THREE.BufferGeometry();
+    const starPositions = new Float32Array(starCount * 3);
+    for (let i = 0; i < starCount; i++) {
+      const u = Math.random();
+      const v = Math.random();
+      const theta = u * 2.0 * Math.PI;
+      const phi = Math.acos(2.0 * v - 1.0);
+      const r = 380 + Math.random() * 80;
+      starPositions[i * 3] = r * Math.sin(phi) * Math.cos(theta);
+      starPositions[i * 3 + 1] = Math.abs(r * Math.cos(phi)) + 20; // upper hemisphere
+      starPositions[i * 3 + 2] = r * Math.sin(phi) * Math.sin(theta);
+    }
+    starGeo.setAttribute('position', new THREE.BufferAttribute(starPositions, 3));
+    const starMat = new THREE.PointsMaterial({
+      color: 0xffffff,
+      size: 1.8,
+      transparent: true,
+      opacity: 0.85,
+      sizeAttenuation: false,
+      fog: false,
+    });
+    const starField = new THREE.Points(starGeo, starMat);
+    starField.name = 'Night_StarField';
+    starField.visible = false;
+    scene.add(starField);
+    starFieldRef.current = starField;
+
     // 6. SceneGraph container
     const sceneGraphGroup = new THREE.Group();
     sceneGraphGroup.name = 'SceneGraphRoot';
@@ -784,13 +859,13 @@ export const ThreeViewport = () => {
         if (keys.left || keys.right) vel.x -= dir.x * speed * delta;
 
         // Project movement onto horizontal plane (ignore pitch)
-        const yawOnly = scratchEulerRef.current;
-        yawOnly.set(0, camera.rotation.y, 0);
-        const moveVec = scratchVec3Ref.current;
-        moveVec.set(-vel.x * delta, 0, vel.z * delta);
-        moveVec.applyEuler(yawOnly);
-        moveVec.y = 0;
-        camera.position.add(moveVec);
+        const forward = scratchVec3Ref.current;
+        camera.getWorldDirection(forward);
+        forward.y = 0;
+        forward.normalize();
+        const right = new THREE.Vector3().crossVectors(forward, camera.up).normalize();
+        camera.position.addScaledVector(forward, -vel.z * delta);
+        camera.position.addScaledVector(right, -vel.x * delta);
 
         const currentSeed = useUIStore.getState().seed;
         const elev = useUIStore.getState().tuningParams.elevation;
@@ -939,20 +1014,11 @@ export const ThreeViewport = () => {
 
   // Sync if sceneGraph is updated and build world
   useEffect(() => {
-    // 1. Sync Biome
-    if (sceneGraph?.world?.biome) {
-      const b = sceneGraph.world.biome;
-      if (b === 'forest') useUIStore.getState().setActiveBiome('pine');
-      else if (b === 'desert') useUIStore.getState().setActiveBiome('canyon');
-      else if (b === 'urban') useUIStore.getState().setActiveBiome('cyber');
-      else if (b === 'dungeon') useUIStore.getState().setActiveBiome('ruins');
-      else if (b === 'tundra' || b === 'custom') useUIStore.getState().setActiveBiome('alien');
-    }
-
-    // 2. Build LLM-generated world into the viewport
+    // Note: sceneGraph.world.biome is used for atmosphere/lighting context only,
+    // NOT to trigger the preset world builder (that would overwrite the generated world).
     const scene = sceneRef.current;
     const group = sceneGraphGroupRef.current;
-    if (scene && group && sceneGraph && generatedCode) {
+    if (scene && group && sceneGraph) {
       // Clear existing procedural scatter
       while (group.children.length > 0) {
         const obj = group.children[0];
@@ -960,24 +1026,27 @@ export const ThreeViewport = () => {
         disposeHierarchy(obj);
       }
 
-      // Execute LLM-generated code directly into the scene
-      try {
-        const worldSeed = useUIStore.getState().seed;
-        const helpers = new ProceduralAssetLibrary(group as unknown as THREE.Scene, worldSeed);
-        const assets = { helpers, textures: new Map() };
-        const buildFn = new Function('scene', 'THREE', 'assets', `"use strict";\n${generatedCode}`);
-        buildFn(group, THREE, assets);
-        useUIStore.getState().addIpcLog('[WORLDBUILDER] LLM-generated world built successfully.', 'success');
-        useUIStore.getState().setGeneratorMeta({
-          generator: 'ProceduralAssetLibrary.v2',
-          lodStrategy: 'Dynamic Geometry Tier 1',
-          zodValidation: 'Passed (Strict)',
-        });
-        useWorldStore.getState().setCustomWorldActive(true);
-      } catch (err) {
-        console.warn('[ThreeViewport] LLM code execution failed:', err);
-        useUIStore.getState().addIpcLog(`[WORLDBUILDER] Code execution error: ${String(err)}`, 'error');
-        useUIStore.getState().setGeneratorMeta({ zodValidation: 'Failed' });
+      // Execute LLM-generated code directly into the scene (only when code exists)
+      if (generatedCode) {
+        try {
+          const worldSeed = useUIStore.getState().seed;
+          const elev = useUIStore.getState().tuningParams.elevation;
+          const helpers = new ProceduralAssetLibrary(group, worldSeed, (x, z) => getElevation(x, z, worldSeed, elev));
+          const assets = { helpers, textures: new Map() };
+          const buildFn = new Function('scene', 'THREE', 'assets', `"use strict";\n${generatedCode}`);
+          buildFn(group, THREE, assets);
+          useUIStore.getState().addIpcLog('[WORLDBUILDER] LLM-generated world built successfully.', 'success');
+          useUIStore.getState().setGeneratorMeta({
+            generator: 'ProceduralAssetLibrary.v2',
+            lodStrategy: 'Dynamic Geometry Tier 1',
+            zodValidation: 'Passed (Strict)',
+          });
+          useWorldStore.getState().setCustomWorldActive(true);
+        } catch (err) {
+          console.warn('[ThreeViewport] LLM code execution failed:', err);
+          useUIStore.getState().addIpcLog(`[WORLDBUILDER] Code execution error: ${String(err)}`, 'error');
+          useUIStore.getState().setGeneratorMeta({ zodValidation: 'Failed' });
+        }
       }
 
       // Spawn graph objects as fallback meshes
@@ -1051,14 +1120,119 @@ export const ThreeViewport = () => {
     }
   }, [shadowsEnabled]);
 
-  // Sync Sun Angle slider
+  // Sync Day/Night mode, Celestial Sun/Moon Position, Lighting & Atmosphere
   useEffect(() => {
-    if (sunLightRef.current) {
+    const sunLight = sunLightRef.current;
+    const sunMesh = sunMeshRef.current;
+    const ambientLight = ambientLightRef.current;
+    const starField = starFieldRef.current;
+    const scene = sceneRef.current;
+    if (!sunLight || !scene) return;
+
+    if (isNight) {
+      // ── Night Mode (Moonlight, Deep Midnight Sky & Stars) ──
+      const moonAngle = 60 * (Math.PI / 180);
+      const moonDist = 75;
+      const moonX = Math.cos(moonAngle) * moonDist;
+      const moonY = Math.sin(moonAngle) * moonDist;
+      const moonZ = -35;
+
+      sunLight.position.set(moonX, moonY, moonZ);
+      sunLight.color.setHex(0x8ba2cc);
+      sunLight.intensity = 0.22;
+
+      if (ambientLight) {
+        ambientLight.color.setHex(0x0f172a);
+        ambientLight.intensity = 0.15;
+      }
+
+      if (sunMesh) {
+        sunMesh.position.set(moonX * 2.2, moonY * 2.2, moonZ * 2.2);
+        const core = sunMesh.getObjectByName('Sun_Core');
+        const corona = sunMesh.getObjectByName('Sun_Corona');
+        const moon = sunMesh.getObjectByName('Celestial_Moon');
+        if (core) core.visible = false;
+        if (corona) corona.visible = false;
+        if (moon) moon.visible = true;
+      }
+
+      if (starField) {
+        starField.visible = true;
+      }
+
+      scene.background = new THREE.Color(0x060814);
+      if (scene.fog) {
+        scene.fog.color.setHex(0x060814);
+      }
+    } else {
+      // ── Day Mode (Default Sun & Daylight Atmosphere) ──
       const rad = (tuningParams.sunAngle * Math.PI) / 180;
-      sunLightRef.current.position.x = Math.cos(rad) * 55;
-      sunLightRef.current.position.y = Math.sin(rad) * 55;
+      const sunDist = 70;
+      const sunX = Math.cos(rad) * sunDist;
+      const sunY = Math.max(14, Math.sin(rad) * sunDist);
+      const sunZ = 30;
+
+      sunLight.position.set(sunX, sunY, sunZ);
+
+      // Biome-specific daylight illumination
+      if (activeBiome === 'canyon') {
+        sunLight.color.setHex(0xffedd5);
+        if (ambientLight) ambientLight.color.setHex(0xfdba74);
+      } else if (activeBiome === 'cyber') {
+        sunLight.color.setHex(0xf43f5e);
+        if (ambientLight) ambientLight.color.setHex(0x38bdf8);
+      } else if (activeBiome === 'alien') {
+        sunLight.color.setHex(0xa855f7);
+        if (ambientLight) ambientLight.color.setHex(0x2dd4bf);
+      } else if (activeBiome === 'ruins') {
+        sunLight.color.setHex(0xfb923c);
+        if (ambientLight) ambientLight.color.setHex(0xfde68a);
+      } else {
+        sunLight.color.setHex(0xfffae0);
+        if (ambientLight) ambientLight.color.setHex(0xdde6ff);
+      }
+      sunLight.intensity = 1.35;
+      if (ambientLight) ambientLight.intensity = 0.45;
+
+      if (sunMesh) {
+        sunMesh.position.set(sunX * 2.4, sunY * 2.4, sunZ * 2.4);
+        const core = sunMesh.getObjectByName('Sun_Core');
+        const corona = sunMesh.getObjectByName('Sun_Corona');
+        const moon = sunMesh.getObjectByName('Celestial_Moon');
+        if (core) core.visible = true;
+        if (corona) corona.visible = true;
+        if (moon) moon.visible = false;
+      }
+
+      if (starField) {
+        starField.visible = false;
+      }
+
+      let skyColor = 0x111827;
+      let fogColor = 0x0f172a;
+      if (activeBiome === 'canyon') {
+        skyColor = 0x9a3412;
+        fogColor = 0x29150d;
+      } else if (activeBiome === 'cyber') {
+        skyColor = 0x111318;
+        fogColor = 0x090514;
+      } else if (activeBiome === 'alien') {
+        skyColor = 0x064e3b;
+        fogColor = 0x041b18;
+      } else if (activeBiome === 'ruins') {
+        skyColor = 0x44403c;
+        fogColor = 0x1c1917;
+      } else {
+        skyColor = 0x1e3a5f;
+        fogColor = 0x0f172a;
+      }
+
+      scene.background = new THREE.Color(skyColor);
+      if (scene.fog) {
+        scene.fog.color.setHex(fogColor);
+      }
     }
-  }, [tuningParams.sunAngle]);
+  }, [isNight, tuningParams.sunAngle, activeBiome]);
 
   // Sync Fog Density slider
   useEffect(() => {
@@ -1333,6 +1507,12 @@ export const ThreeViewport = () => {
           }
           break;
         }
+        case 'KeyN': {
+          if (!dialogueOpen && !(e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement)) {
+            toggleDayNight();
+          }
+          break;
+        }
         case 'Escape':
           if (useUIStore.getState().cameraMode === 'walk') {
             setCameraMode('orbit');
@@ -1549,6 +1729,18 @@ export const ThreeViewport = () => {
         >
           <i className="ph ph-arrows-clockwise" />
           <span>Reset View</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={toggleDayNight}
+          title={isNight ? 'Shift to Day (Sun) [Shortcut: N]' : 'Shift to Night (Moon & Stars) [Shortcut: N]'}
+          className={`px-2.5 py-1 rounded-md bg-black/60 mac-subtle-blur border border-white/10 text-xs transition cursor-pointer flex items-center space-x-1.5 ${
+            isNight ? 'text-indigo-300 border-indigo-500/30 hover:bg-white/20 shadow-sm' : 'text-amber-400 hover:bg-white/20'
+          }`}
+        >
+          <i className={`ph ${isNight ? 'ph-moon' : 'ph-sun'} text-sm`} />
+          <span className="font-medium">{isNight ? 'Night' : 'Day'}</span>
         </button>
 
         <button

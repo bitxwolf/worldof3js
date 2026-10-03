@@ -1,0 +1,68 @@
+appId: com.worldengine.app
+productName: WorldEngine
+copyright: Copyright 2026
+
+directories:
+  output: release
+  buildResources: build
+
+files:
+  - "out/**/*"
+  - "node_modules/**/*"
+  - "package.json"
+  - "!**/.env"
+  - "!**/.env.*"
+  - "!**/.env*.local"
+  - "!**/.env.example"
+  - "!tests/**"
+  - "!**/*.test.*"
+  - "!**/*.spec.*"
+  - "!coverage/**"
+  - "!src/**"
+  - "!prompts and plans/**"
+  - "!*.md"
+asar: true
+
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+    - target: portable
+      arch:
+        - x64
+  icon: build/icon.ico
+  artifactName: WorldEngine-Setup-${version}.${ext}
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  deleteAppDataOnUninstall: false
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: WorldEngine
+
+mac:
+  target:
+    - target: dmg
+      arch:
+        - x64
+        - arm64
+  icon: build/icon.icns
+  artifactName: WorldEngine-${version}-${arch}.${ext}
+  category: public.app-category.entertainment
+
+dmg:
+  title: WorldEngine ${version}
+  backgroundColor: '#0a0a0f'
+
+linux:
+  target:
+    - target: AppImage
+      arch:
+        - x64
+  icon: build/icon.png
+  category: Game
+
+publish: null

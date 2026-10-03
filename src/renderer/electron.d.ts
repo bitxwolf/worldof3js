@@ -16,6 +16,8 @@ declare global {
       getVersion: () => Promise<string>;
       getSettings: () => Promise<IPCResult<AppSettings>>;
       saveSettings: (s: Partial<AppSettings>) => Promise<IPCResult<void>>;
+      fetchOpenAIModels: (p: { baseUrl: string; apiKey: string }) => Promise<{ success: boolean; data?: { models: string[] }; error?: { message: string } }>;
+      fetchAnthropicModels: (p: { apiKey: string }) => Promise<{ success: boolean; data?: { models: string[] }; error?: { message: string } }>;
 
       // LLM
       parseWorld: (p: ParseWorldPayload) => Promise<IPCResult<SceneGraph>>;

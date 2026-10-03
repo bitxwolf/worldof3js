@@ -1,179 +1,338 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { useUIStore } from '../../store/uiStore';
-import type { AppSettings } from '../../../shared/ipc.types';
 import { transport } from '../../../shared/transport';
-import { IPC_CHANNELS } from '../../../shared/constants';
+
+const ANTHROPIC_FALLBACK_MODELS = [
+  'claude-opus-4-5',
+  'claude-opus-5-5',
+  'claude-sonnet-4-6',
+  'claude-haiku-4-5',
+];
 
 export const SettingsModal = () => {
   const { isSettingsOpen, closeSettings } = useUIStore();
-  const [apiKey, setApiKey] = useState('');
-  const [model, setModel] = useState<string>('nvidia/nemotron-3-ultra-550b-a55b:free');
+  const onClose = closeSettings;
+
+  // Provider selection
+  const [activeProvider, setActiveProvider] = useState<'openai' | 'anthropic'>('openai');
+
+  // OpenAI-compatible section
+  const [openaiBaseUrl, setOpenaiBaseUrl] = useState('https://openrouter.ai/api/v1');
+  const [openaiKey, setOpenaiKey] = useState('');
+  const [openaiModels, setOpenaiModels] = useState<string[]>([]);
+  const [openaiModel, setOpenaiModel] = useState('');
+  const [openaiStatus, setOpenaiStatus] = useState<'idle' | 'loading' | 'ok' | 'error'>('idle');
+  const [openaiError, setOpenaiError] = useState('');
+
+  // Anthropic section
+  const [anthropicKey, setAnthropicKey] = useState('');
+  const [anthropicModels, setAnthropicModels] = useState<string[]>([]);
+  const [anthropicModel, setAnthropicModel] = useState('');
+  const [anthropicStatus, setAnthropicStatus] = useState<'idle' | 'loading' | 'ok' | 'error'>('idle');
+  const [anthropicError, setAnthropicError] = useState('');
+  const [anthropicStatusMsg, setAnthropicStatusMsg] = useState('');
+
+  // Generation quality
   const [quality, setQuality] = useState<'fast' | 'quality'>('fast');
-  const [isSaved, setIsSaved] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
-  const loadSettings = useCallback(async () => {
-    const res = await transport.call<AppSettings>(IPC_CHANNELS.APP_GET_SETTINGS);
-    if (res.success && res.data) {
-      setApiKey(res.data.apiKey || '');
-      setModel(res.data.model || 'nvidia/nemotron-3-ultra-550b-a55b:free');
-      setQuality(res.data.quality || 'fast');
-    }
-  }, []);
-
+  // Load saved settings & models on open
   useEffect(() => {
-    if (isSettingsOpen) {
-      loadSettings();
-      setIsSaved(false);
-      setError(null);
-    }
-  }, [isSettingsOpen, loadSettings]);
+    if (!isSettingsOpen) return;
+    (async () => {
+      const res = await (window.electronAPI?.getSettings
+        ? window.electronAPI.getSettings()
+        : transport.getSettings());
+      if (res.success && res.data) {
+        const s = res.data;
+        if (s.activeProvider) setActiveProvider(s.activeProvider);
+        if (s.openaiBaseUrl) setOpenaiBaseUrl(s.openaiBaseUrl);
+        if (s.openaiApiKey) setOpenaiKey(s.openaiApiKey);
+        if (s.anthropicApiKey) setAnthropicKey(s.anthropicApiKey);
+        if (s.quality) setQuality(s.quality);
+
+        // OpenAI models restoring
+        const savedOpenaiModels = s.openaiModelList ? [...s.openaiModelList] : [];
+        if (s.openaiModel && !savedOpenaiModels.includes(s.openaiModel)) {
+          savedOpenaiModels.unshift(s.openaiModel);
+        }
+        if (savedOpenaiModels.length > 0) {
+          setOpenaiModels(savedOpenaiModels);
+          setOpenaiStatus('ok');
+        }
+        if (s.openaiModel) {
+          setOpenaiModel(s.openaiModel);
+        }
+
+        // Anthropic models restoring
+        const savedAnthropicModels = s.anthropicModelList ? [...s.anthropicModelList] : [];
+        if (s.anthropicModel && !savedAnthropicModels.includes(s.anthropicModel)) {
+          savedAnthropicModels.unshift(s.anthropicModel);
+        }
+        if (savedAnthropicModels.length > 0) {
+          setAnthropicModels(savedAnthropicModels);
+          setAnthropicStatus('ok');
+          setAnthropicStatusMsg(`✓ ${savedAnthropicModels.length} models available`);
+        }
+        if (s.anthropicModel) {
+          setAnthropicModel(s.anthropicModel);
+        }
+      }
+    })();
+  }, [isSettingsOpen]);
 
   if (!isSettingsOpen) return null;
 
-  const handleSave = async (): Promise<void> => {
-    setError(null);
-    const update: Partial<AppSettings> = {
-      apiKey: apiKey.trim(),
-      model: model.trim(),
-      quality,
-    };
-    const res = await transport.call<void>(IPC_CHANNELS.APP_SAVE_SETTINGS, update);
-    if (res.success) {
-      setIsSaved(true);
-      setTimeout(() => {
-        setIsSaved(false);
-        closeSettings();
-      }, 1200);
-    } else {
-      setError(res.error.message || 'Failed to save settings');
+  const fetchOpenAIModels = async () => {
+    if (!openaiBaseUrl || !openaiKey) {
+      setOpenaiError('Enter base URL and API key first.');
+      setOpenaiStatus('error');
+      return;
     }
+    setOpenaiStatus('loading');
+    setOpenaiError('');
+    const res = await (window.electronAPI?.fetchOpenAIModels
+      ? window.electronAPI.fetchOpenAIModels({ baseUrl: openaiBaseUrl, apiKey: openaiKey })
+      : transport.fetchOpenAIModels({ baseUrl: openaiBaseUrl, apiKey: openaiKey }));
+
+    if (res.success && res.data) {
+      setOpenaiModels(res.data.models);
+      if (!res.data.models.includes(openaiModel)) setOpenaiModel(res.data.models[0] ?? '');
+      setOpenaiStatus('ok');
+    } else {
+      const errMsg = ('error' in res && res.error?.message) || 'Fetch failed';
+      setOpenaiError(errMsg);
+      setOpenaiStatus('error');
+    }
+  };
+
+  const fetchAnthropicModels = async () => {
+    if (!anthropicKey) {
+      setAnthropicError('Enter API key first.');
+      setAnthropicStatus('error');
+      return;
+    }
+    setAnthropicStatus('loading');
+    setAnthropicError('');
+    setAnthropicStatusMsg('');
+    const res = await (window.electronAPI?.fetchAnthropicModels
+      ? window.electronAPI.fetchAnthropicModels({ apiKey: anthropicKey })
+      : transport.fetchAnthropicModels({ apiKey: anthropicKey }));
+
+    if (res.success && res.data) {
+      let models = res.data.models;
+      if (models.length === 0) {
+        models = ANTHROPIC_FALLBACK_MODELS;
+        setAnthropicStatusMsg('✓ Using known models (fetch returned empty)');
+      } else {
+        setAnthropicStatusMsg(`✓ ${models.length} models available`);
+      }
+      setAnthropicModels(models);
+      if (!models.includes(anthropicModel)) setAnthropicModel(models[0] ?? '');
+      setAnthropicStatus('ok');
+    } else {
+      const errMsg = ('error' in res && res.error?.message) || 'Fetch failed';
+      setAnthropicError(errMsg);
+      setAnthropicStatus('error');
+    }
+  };
+
+  const handleSave = () => {
+    const payload = {
+      activeProvider,
+      openaiBaseUrl,
+      openaiApiKey: openaiKey,
+      openaiModel,
+      anthropicApiKey: anthropicKey,
+      anthropicModel,
+      quality,
+      openaiModelList: openaiModels,
+      anthropicModelList: anthropicModels,
+      apiKey: activeProvider === 'anthropic' ? anthropicKey : openaiKey,
+      model: activeProvider === 'anthropic' ? anthropicModel : openaiModel,
+    };
+
+    if (window.electronAPI?.saveSettings) {
+      window.electronAPI.saveSettings(payload);
+    } else {
+      transport.saveSettings(payload);
+    }
+    onClose();
   };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-      <div className="w-full max-w-md bg-gray-900 border border-gray-800 rounded-2xl p-6 shadow-2xl space-y-6">
+      <div className="w-full max-w-lg bg-gray-900 border border-gray-800 rounded-2xl p-6 shadow-2xl space-y-5 max-h-[92vh] overflow-y-auto custom-scrollbar">
         <div className="flex items-center justify-between border-b border-gray-800 pb-3">
-          <h2 className="text-xl font-bold text-gray-100 flex items-center gap-2">
-            ⚙️ Settings
+          <h2 className="text-lg font-bold text-gray-100 flex items-center gap-2">
+            ⚙ Settings
           </h2>
           <button
-            onClick={closeSettings}
-            className="text-gray-400 hover:text-gray-200 transition-colors"
+            type="button"
+            onClick={onClose}
+            className="text-gray-400 hover:text-gray-200 transition-colors text-lg"
           >
             ✕
           </button>
         </div>
 
-        <div className="space-y-4 text-sm">
-          <div>
-            <label className="block text-gray-300 font-medium mb-1.5">
-              API Key (OpenRouter or Anthropic)
-            </label>
-            <input
-              type="password"
-              value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-              placeholder="sk-or-v1-... or sk-ant-..."
-              className="w-full bg-gray-950 border border-gray-700 rounded-lg px-3 py-2 text-gray-100 placeholder-gray-500 focus:outline-none focus:border-indigo-500 font-mono text-xs"
-            />
-            <p className="text-xs text-gray-400 mt-1">
-              Supports OpenRouter (<code className="text-indigo-400">sk-or-v1-...</code>) & Anthropic (<code className="text-indigo-400">sk-ant-...</code>).
-            </p>
-          </div>
-
-          <div>
-            <label className="block text-gray-300 font-medium mb-1.5">
-              LLM Model Name
-            </label>
-            <input
-              type="text"
-              value={model}
-              onChange={(e) => setModel(e.target.value)}
-              placeholder="e.g. nvidia/nemotron-3-ultra-550b-a55b:free"
-              className="w-full bg-gray-950 border border-gray-700 rounded-lg px-3 py-2 text-gray-100 placeholder-gray-500 focus:outline-none focus:border-indigo-500 font-mono text-xs mb-2"
-            />
-            <div className="flex flex-wrap gap-1.5">
-              <button
-                type="button"
-                onClick={() => setModel('nvidia/nemotron-3-ultra-550b-a55b:free')}
-                className="text-[10px] bg-gray-800 hover:bg-gray-700 text-gray-300 px-2 py-1 rounded"
-              >
-                Nemotron Ultra (Free)
-              </button>
-              <button
-                type="button"
-                onClick={() => setModel('anthropic/claude-3.5-sonnet')}
-                className="text-[10px] bg-gray-800 hover:bg-gray-700 text-gray-300 px-2 py-1 rounded"
-              >
-                Claude 3.5 Sonnet
-              </button>
-              <button
-                type="button"
-                onClick={() => setModel('meta-llama/llama-3.3-70b-instruct:free')}
-                className="text-[10px] bg-gray-800 hover:bg-gray-700 text-gray-300 px-2 py-1 rounded"
-              >
-                Llama 3.3 70B (Free)
-              </button>
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-gray-300 font-medium mb-1.5">
-              Generation Quality
-            </label>
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                onClick={() => setQuality('fast')}
-                className={`py-2 px-3 rounded-lg border text-center transition-colors ${
-                  quality === 'fast'
-                    ? 'border-indigo-500 bg-indigo-500/10 text-indigo-300 font-medium'
-                    : 'border-gray-800 bg-gray-950 text-gray-400 hover:border-gray-700'
-                }`}
-              >
-                ⚡ Fast
-              </button>
-              <button
-                type="button"
-                onClick={() => setQuality('quality')}
-                className={`py-2 px-3 rounded-lg border text-center transition-colors ${
-                  quality === 'quality'
-                    ? 'border-indigo-500 bg-indigo-500/10 text-indigo-300 font-medium'
-                    : 'border-gray-800 bg-gray-950 text-gray-400 hover:border-gray-700'
-                }`}
-              >
-                ✨ High Detail
-              </button>
-            </div>
+        {/* Active Provider Toggle */}
+        <div className="settings-section">
+          <label className="settings-label">ACTIVE PROVIDER</label>
+          <div className="provider-toggle">
+            <button
+              type="button"
+              className={activeProvider === 'openai' ? 'active' : ''}
+              onClick={() => setActiveProvider('openai')}
+            >
+              {activeProvider === 'openai' ? '● ' : '○ '}OpenRouter / OpenAI
+            </button>
+            <button
+              type="button"
+              className={activeProvider === 'anthropic' ? 'active' : ''}
+              onClick={() => setActiveProvider('anthropic')}
+            >
+              {activeProvider === 'anthropic' ? '● ' : '○ '}Anthropic
+            </button>
           </div>
         </div>
 
-        {error && (
-          <div className="bg-red-950/50 border border-red-800 text-red-300 text-xs p-3 rounded-lg">
-            {error}
-          </div>
-        )}
+        {/* OpenAI-Compatible Section */}
+        <div className="settings-card">
+          <div className="settings-card-title">OpenRouter / OpenAI Compatible</div>
 
-        {isSaved && (
-          <div className="bg-emerald-950/50 border border-emerald-800 text-emerald-300 text-xs p-3 rounded-lg">
-            ✓ Settings saved successfully!
+          <label className="settings-label">Base URL</label>
+          <div className="input-row">
+            <input
+              type="text"
+              value={openaiBaseUrl}
+              onChange={(e) => setOpenaiBaseUrl(e.target.value)}
+              placeholder="https://openrouter.ai/api/v1"
+              className="settings-input"
+            />
+            <button
+              type="button"
+              onClick={fetchOpenAIModels}
+              disabled={openaiStatus === 'loading'}
+              className="fetch-btn"
+            >
+              {openaiStatus === 'loading' ? '...' : 'Fetch'}
+            </button>
           </div>
-        )}
 
-        <div className="flex justify-end gap-3 pt-2 border-t border-gray-800">
-          <button
-            type="button"
-            onClick={closeSettings}
-            className="px-4 py-2 bg-gray-800 hover:bg-gray-750 text-gray-300 text-xs font-medium rounded-lg transition-colors"
+          <label className="settings-label">API Key</label>
+          <input
+            type="password"
+            value={openaiKey}
+            onChange={(e) => setOpenaiKey(e.target.value)}
+            placeholder="sk-or-v1-..."
+            className="settings-input"
+          />
+
+          <label className="settings-label">Model</label>
+          <select
+            value={openaiModel}
+            onChange={(e) => setOpenaiModel(e.target.value)}
+            className="settings-select"
+            disabled={openaiModels.length === 0}
           >
+            {openaiModels.length === 0 ? (
+              <option value="">— fetch models first —</option>
+            ) : (
+              openaiModels.map((m) => (
+                <option key={m} value={m}>
+                  {m}
+                </option>
+              ))
+            )}
+          </select>
+
+          {/* Status line */}
+          {openaiStatus === 'ok' && (
+            <span className="status-ok">✓ {openaiModels.length} models available</span>
+          )}
+          {openaiStatus === 'error' && (
+            <span className="status-error">✗ {openaiError}</span>
+          )}
+        </div>
+
+        {/* Anthropic Section */}
+        <div className="settings-card">
+          <div className="settings-card-title">Anthropic</div>
+
+          <label className="settings-label">API Key</label>
+          <div className="input-row">
+            <input
+              type="password"
+              value={anthropicKey}
+              onChange={(e) => setAnthropicKey(e.target.value)}
+              placeholder="sk-ant-..."
+              className="settings-input"
+            />
+            <button
+              type="button"
+              onClick={fetchAnthropicModels}
+              disabled={anthropicStatus === 'loading'}
+              className="fetch-btn"
+            >
+              {anthropicStatus === 'loading' ? '...' : 'Fetch'}
+            </button>
+          </div>
+
+          <label className="settings-label">Model</label>
+          <select
+            value={anthropicModel}
+            onChange={(e) => setAnthropicModel(e.target.value)}
+            className="settings-select"
+            disabled={anthropicModels.length === 0}
+          >
+            {anthropicModels.length === 0 ? (
+              <option value="">— fetch models first —</option>
+            ) : (
+              anthropicModels.map((m) => (
+                <option key={m} value={m}>
+                  {m}
+                </option>
+              ))
+            )}
+          </select>
+
+          {anthropicStatus === 'ok' && (
+            <span className="status-ok">
+              {anthropicStatusMsg || `✓ ${anthropicModels.length} models available`}
+            </span>
+          )}
+          {anthropicStatus === 'error' && (
+            <span className="status-error">✗ {anthropicError}</span>
+          )}
+        </div>
+
+        {/* Generation Quality — keep existing */}
+        <div className="settings-section">
+          <label className="settings-label">Generation Quality</label>
+          <div className="quality-toggle">
+            <button
+              type="button"
+              className={quality === 'fast' ? 'active' : ''}
+              onClick={() => setQuality('fast')}
+            >
+              ⚡ Fast
+            </button>
+            <button
+              type="button"
+              className={quality === 'quality' ? 'active' : ''}
+              onClick={() => setQuality('quality')}
+            >
+              ✦ High Detail
+            </button>
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="settings-footer">
+          <button type="button" onClick={onClose} className="btn-cancel">
             Cancel
           </button>
-          <button
-            type="button"
-            onClick={handleSave}
-            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-lg shadow-lg shadow-indigo-600/30 transition-colors"
-          >
+          <button type="button" onClick={handleSave} className="btn-save">
             Save Settings
           </button>
         </div>

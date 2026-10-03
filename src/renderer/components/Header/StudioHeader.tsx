@@ -10,6 +10,8 @@ export const StudioHeader = () => {
     setCameraMode,
     wireframe,
     toggleWireframe,
+    isNight,
+    toggleDayNight,
     seed,
     reseed,
     openSettings,
@@ -48,7 +50,7 @@ export const StudioHeader = () => {
 
         <div className="flex items-center space-x-1.5 text-xs text-mac-textMuted font-medium">
           <i className="ph ph-cube text-blue-400 text-sm" />
-          <span className="text-white font-semibold">WorldEngine</span>
+          <span className="text-white font-semibold">Orbis</span>
           <span className="text-[11px] px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20 font-mono">
             v1.2.0
           </span>
@@ -94,6 +96,20 @@ export const StudioHeader = () => {
         >
           <i className="ph ph-grid-four text-sm" />
           <span>Wireframe</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={toggleDayNight}
+          title={isNight ? 'Shift to Day (Sun)' : 'Shift to Night (Moon & Stars)'}
+          className={`px-2.5 py-1 rounded-md font-medium flex items-center space-x-1.5 transition ${
+            isNight
+              ? 'bg-indigo-500/25 text-indigo-300 border border-indigo-500/40 shadow-sm'
+              : 'text-amber-400 hover:text-amber-300 hover:bg-white/10'
+          }`}
+        >
+          <i className={`ph ${isNight ? 'ph-moon text-indigo-300' : 'ph-sun text-amber-400'} text-sm`} />
+          <span>{isNight ? 'Night' : 'Day'}</span>
         </button>
       </div>
 

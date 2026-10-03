@@ -4,9 +4,94 @@ import * as path from 'path';
 import pdf from 'pdf-parse';
 import { IPC_CHANNELS } from '../../shared/constants';
 import type { IPCResult, SavedWorld } from '../../shared/ipc.types';
-import type { SceneGraph } from '../../shared/schema/sceneGraph.schema';
+import { SavedWorldSchema, type SceneGraph } from '../../shared/schema/sceneGraph.schema';
 
 const allowedPaths = new Set<string>();
+const MAX_FILE_SIZE = 25 * 1024 * 1024; // 25MB
+
+function sanitizeFilename(name: string | undefined | null, fallback = 'world'): string {
+  if (!name || typeof name !== 'string') {
+    return fallback;
+  }
+  let sanitized = name;
+  while (sanitized.includes('..')) {
+    sanitized = sanitized.replace(/\.\./g, '');
+  }
+  sanitized = sanitized.replace(/[/\\]/g, '');
+  sanitized = sanitized.replace(/[<>:"/\\|?*\x00-\x1F]/g, '_');
+  sanitized = path.basename(sanitized).trim();
+  sanitized = sanitized.replace(/^\.+/, '').trim();
+  return sanitized || fallback;
+}
+
+function escapeHtml(str: unknown): string {
+  if (typeof str !== 'string') return '';
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+/**
+ * Patterns that must never appear in code embedded into standalone HTML exports.
+ * If any match, the code is stripped entirely and only static scene objects render.
+ */
+const EXPORT_BLOCKED_PATTERNS: ReadonlyArray<RegExp> = [
+  // Constructor chain escape
+  /\.constructor\b/,
+  /\b__proto__\b/,
+  /\bprototype\b/,
+  /\bgetPrototypeOf\b/,
+  /\bReflect\b/,
+  /\bProxy\b/,
+  // DOM / globals
+  /\bdocument\b/,
+  /\bwindow\b/,
+  /\bglobalThis\b/,
+  // Network
+  /\bfetch\s*\(/,
+  /\bXMLHttpRequest\b/,
+  /\bWebSocket\b/,
+  /\bimportScripts\b/,
+  // Eval / code generation
+  /\beval\s*\(/,
+  /\bFunction\s*\(/,
+  // Module / require
+  /\bimport\s+/,
+  /\bimport\s*\(/,
+  /\brequire\s*\(/,
+  // Storage
+  /\blocalStorage\b/,
+  /\bsessionStorage\b/,
+  // Bracket notation to dangerous props
+  /\[\s*['"`](?:constructor|__proto__|prototype|window|document|globalThis|eval|Function|fetch)\b/,
+];
+
+/**
+ * Validate code for export safety. Returns the code if safe, empty string if dangerous.
+ * Strips comments and string literals before checking to avoid false positives.
+ */
+function validateExportCode(code: string | undefined): string {
+  if (!code || typeof code !== 'string' || !code.trim()) return '';
+
+  // Strip string literals and comments before pattern matching
+  const stripped = code
+    .replace(/\/\/.*$/gm, '')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/'(?:[^'\\]|\\.)*'/g, '""')
+    .replace(/"(?:[^"\\]|\\.)*"/g, '""')
+    .replace(/`(?:[^`\\]|\\.)*`/g, '""');
+
+  for (const pattern of EXPORT_BLOCKED_PATTERNS) {
+    if (pattern.test(stripped)) {
+      console.warn(`[file.handler] Export code blocked: matched ${pattern}`);
+      return '';
+    }
+  }
+  return code;
+}
 
 export function registerFileHandlers(): void {
   ipcMain.handle(
@@ -23,8 +108,14 @@ export function registerFileHandlers(): void {
         if (result.canceled || result.filePaths.length === 0) {
           return { success: true, data: null };
         }
-        allowedPaths.add(path.resolve(result.filePaths[0]));
-        return { success: true, data: result.filePaths[0] };
+        const selectedPath = result.filePaths[0];
+        allowedPaths.add(path.resolve(selectedPath));
+        try {
+          allowedPaths.add(await fs.realpath(selectedPath));
+        } catch {
+          // ignore
+        }
+        return { success: true, data: selectedPath };
       } catch (err: unknown) {
         const error = err instanceof Error ? err : new Error(String(err));
         return { success: false, error: { name: error.name, message: error.message } };
@@ -36,27 +127,58 @@ export function registerFileHandlers(): void {
     IPC_CHANNELS.FILE_READ,
     async (_event, filePath: string): Promise<IPCResult<string>> => {
       try {
-        const normalizedPath = path.resolve(filePath);
+        if (!filePath || typeof filePath !== 'string') {
+          throw new Error('Invalid file path');
+        }
+
         if (filePath.includes('..')) {
           throw new Error('Path traversal not allowed');
         }
 
-        const safeExtensions = new Set(['.txt', '.md', '.pdf']);
-        const ext = path.extname(normalizedPath).toLowerCase();
-        const isSafeExtension = safeExtensions.has(ext);
+        const normalizedPath = path.resolve(filePath);
+        if (normalizedPath.includes('..')) {
+          throw new Error('Path traversal not allowed');
+        }
 
-        const userDataDir = app.getPath('userData');
-        if (!normalizedPath.startsWith(userDataDir) && !allowedPaths.has(normalizedPath) && !isSafeExtension) {
+        const realPath = await fs.realpath(filePath);
+        if (realPath.includes('..')) {
+          throw new Error('Path traversal not allowed');
+        }
+
+        let realUserDataDir: string;
+        try {
+          realUserDataDir = await fs.realpath(app.getPath('userData'));
+        } catch {
+          realUserDataDir = path.resolve(app.getPath('userData'));
+        }
+
+        const safeExtensions = new Set(['.txt', '.md', '.pdf']);
+        const ext = path.extname(realPath).toLowerCase();
+        const inputExt = path.extname(normalizedPath).toLowerCase();
+        const isSafeExtension = safeExtensions.has(ext) && safeExtensions.has(inputExt);
+
+        const userDataPrefix = realUserDataDir.endsWith(path.sep)
+          ? realUserDataDir
+          : realUserDataDir + path.sep;
+        const inUserData = realPath.startsWith(userDataPrefix) || realPath === realUserDataDir;
+        const isAllowed = allowedPaths.has(realPath) || allowedPaths.has(normalizedPath);
+
+        if (!isSafeExtension || (!inUserData && !isAllowed)) {
           throw new Error('Access to this file path is denied');
         }
 
-        if (filePath.toLowerCase().endsWith('.pdf')) {
-          const buffer = await fs.readFile(normalizedPath);
+        const stat = await fs.stat(realPath);
+        if (stat.size > MAX_FILE_SIZE) {
+          throw new Error('File exceeds maximum allowed size (25MB)');
+        }
+
+        if (realPath.toLowerCase().endsWith('.pdf')) {
+          const buffer = await fs.readFile(realPath);
           const pdfData = await pdf(buffer);
           return { success: true, data: pdfData.text };
         }
 
-        const content = await fs.readFile(normalizedPath, 'utf-8');
+        const content = await fs.readFile(realPath, 'utf-8');
         return { success: true, data: content };
       } catch (err: unknown) {
         const error = err instanceof Error ? err : new Error(String(err));
@@ -69,9 +191,10 @@ export function registerFileHandlers(): void {
     IPC_CHANNELS.FILE_SAVE_WORLD,
     async (_event, worldData: SavedWorld): Promise<IPCResult<string | null>> => {
       try {
+        const safeName = sanitizeFilename(worldData?.name, 'world');
         const result = await dialog.showSaveDialog({
           title: 'Save World',
-          defaultPath: `${worldData.name || 'world'}.json`,
+          defaultPath: `${safeName}.json`,
           filters: [{ name: 'World Files', extensions: ['json'] }],
         });
 
@@ -79,9 +202,15 @@ export function registerFileHandlers(): void {
           return { success: true, data: null };
         }
 
-        allowedPaths.add(path.resolve(result.filePath));
-        await fs.writeFile(result.filePath, JSON.stringify(worldData, null, 2), 'utf-8');
-        return { success: true, data: result.filePath };
+        const savePath = result.filePath;
+        allowedPaths.add(path.resolve(savePath));
+        try {
+          allowedPaths.add(await fs.realpath(savePath));
+        } catch {
+          // ignore
+        }
+        await fs.writeFile(savePath, JSON.stringify(worldData, null, 2), 'utf-8');
+        return { success: true, data: savePath };
       } catch (err: unknown) {
         const error = err instanceof Error ? err : new Error(String(err));
         return { success: false, error: { name: error.name, message: error.message } };
@@ -103,10 +232,26 @@ export function registerFileHandlers(): void {
           return { success: true, data: null };
         }
 
-        allowedPaths.add(path.resolve(result.filePaths[0]));
-        const content = await fs.readFile(result.filePaths[0], 'utf-8');
-        const parsed = JSON.parse(content) as SavedWorld;
-        return { success: true, data: parsed };
+        const selectedPath = result.filePaths[0];
+        allowedPaths.add(path.resolve(selectedPath));
+        try {
+          allowedPaths.add(await fs.realpath(selectedPath));
+        } catch {
+          // ignore
+        }
+        const content = await fs.readFile(selectedPath, 'utf-8');
+        const parsed: unknown = JSON.parse(content);
+        const parsedResult = SavedWorldSchema.safeParse(parsed);
+        if (!parsedResult.success) {
+          return {
+            success: false,
+            error: {
+              name: 'ValidationError',
+              message: `Invalid world schema: ${parsedResult.error.message}`,
+            },
+          };
+        }
+        return { success: true, data: parsedResult.data };
       } catch (err: unknown) {
         const error = err instanceof Error ? err : new Error(String(err));
         return { success: false, error: { name: error.name, message: error.message } };
@@ -118,9 +263,10 @@ export function registerFileHandlers(): void {
     IPC_CHANNELS.FILE_EXPORT_HTML,
     async (_event, graph: SceneGraph & { code?: string }): Promise<IPCResult<string | null>> => {
       try {
+        const safeName = sanitizeFilename(graph?.world?.name, 'world');
         const result = await dialog.showSaveDialog({
           title: 'Export Standalone HTML World',
-          defaultPath: `${graph.world.name || 'world'}.html`,
+          defaultPath: `${safeName}.html`,
           filters: [{ name: 'HTML Files', extensions: ['html'] }],
         });
 
@@ -128,15 +274,22 @@ export function registerFileHandlers(): void {
           return { success: true, data: null };
         }
 
-        allowedPaths.add(path.resolve(result.filePath));
+        const exportPath = result.filePath;
+        allowedPaths.add(path.resolve(exportPath));
+        try {
+          allowedPaths.add(await fs.realpath(exportPath));
+        } catch {
+          // ignore
+        }
         const serializedGraph = JSON.stringify(graph).replace(/<\/script>/gi, '<\\/script>');
 
         const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' https://cdnjs.cloudflare.com; style-src 'unsafe-inline'; img-src * data: blob:; connect-src 'none'; form-action 'none'; frame-ancestors 'none'; base-uri 'none'; object-src 'none';">
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${graph.world.name} - Story Engine Standalone</title>
+  <title>${escapeHtml(graph.world.name)} - Orbis Standalone</title>
   <style>
     * { box-sizing: border-box; }
     body { margin: 0; overflow: hidden; background: #000; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
@@ -153,8 +306,8 @@ export function registerFileHandlers(): void {
 </head>
 <body>
   <div id="overlay">
-    <h2>${graph.world.name}</h2>
-    <p>${graph.world.description}</p>
+    <h2>${escapeHtml(graph.world.name)}</h2>
+    <p>${escapeHtml(graph.world.description)}</p>
   </div>
   <div id="instructions">Click to explore · WASD move · Mouse look · Click NPC to talk · Esc to exit</div>
   <div id="crosshair"></div>
@@ -191,8 +344,49 @@ export function registerFileHandlers(): void {
     sun.castShadow = true;
     scene.add(sun);
 
-    // Generated Scene Code
-    ${graph.code || ''}
+    // Procedural asset helpers – fallback stubs for standalone HTML export
+    const assets = {
+      textures: new Map(),
+      helpers: {
+        createTree: (x, z) => {
+          const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.2, 1.5, 6), new THREE.MeshStandardMaterial({ color: 0x8B4513 }));
+          const crown = new THREE.Mesh(new THREE.ConeGeometry(1.0, 2.5, 6), new THREE.MeshStandardMaterial({ color: 0x2d6a4f }));
+          trunk.position.set(x, 0.75, z); crown.position.set(x, 2.75, z);
+          scene.add(trunk); scene.add(crown);
+        },
+        createRock: (x, z) => {
+          const m = new THREE.Mesh(new THREE.DodecahedronGeometry(0.5 + Math.random() * 0.4, 0), new THREE.MeshStandardMaterial({ color: 0x808080, roughness: 0.9 }));
+          m.position.set(x, 0.3, z); scene.add(m);
+        },
+        createRockCluster: (x, z) => { for (let i = 0; i < 3; i++) assets.helpers.createRock(x + (Math.random() - 0.5) * 2, z + (Math.random() - 0.5) * 2); },
+        createBuilding: (x, z) => {
+          const m = new THREE.Mesh(new THREE.BoxGeometry(4, 5, 4), new THREE.MeshStandardMaterial({ color: 0x64748b }));
+          m.position.set(x, 2.5, z); scene.add(m);
+        },
+        createWater: (x, z) => {
+          const m = new THREE.Mesh(new THREE.PlaneGeometry(8, 8), new THREE.MeshStandardMaterial({ color: 0x1e90ff, transparent: true, opacity: 0.7 }));
+          m.rotation.x = -Math.PI / 2; m.position.set(x, 0.05, z); scene.add(m);
+        },
+        createGrassField: () => {},
+        createTorch: () => {},
+        createWell: () => {},
+        createPath: () => {},
+        scatter: (count, r1, r2, fn) => {
+          for (let i = 0; i < count; i++) {
+            const angle = Math.random() * Math.PI * 2;
+            const r = r1 + Math.random() * (r2 - r1);
+            fn(Math.cos(angle) * r, Math.sin(angle) * r, i);
+          }
+        }
+      }
+    };
+    // Generated Scene Code — validated against dangerous patterns before embedding.
+    // If validation fails, the code is stripped and only static objects render.
+    ${(() => {
+      const safeCode = validateExportCode(graph.code);
+      if (!safeCode) return '// [Scene code omitted: failed security validation]';
+      return `try {\n${safeCode.replace(/<\/script>/gi, '<\\/script>')}\n} catch(e) { console.error('Scene code error:', e); }`;
+    })()}
 
     // Objects
     const interactables = [];
@@ -322,8 +516,8 @@ export function registerFileHandlers(): void {
 </body>
 </html>`;
 
-        await fs.writeFile(result.filePath, html, 'utf-8');
-        return { success: true, data: result.filePath };
+        await fs.writeFile(exportPath, html, 'utf-8');
+        return { success: true, data: exportPath };
       } catch (err: unknown) {
         const error = err instanceof Error ? err : new Error(String(err));
         return { success: false, error: { name: error.name, message: error.message } };
@@ -331,7 +525,7 @@ export function registerFileHandlers(): void {
     }
   );
 
-  ipcMain.handle('file:autosave-world', async (_, payload: unknown) => {
+  ipcMain.handle(IPC_CHANNELS.FILE_AUTOSAVE_WORLD, async (_, payload: unknown) => {
     try {
       const dir = app.getPath('userData');
       const filePath = path.join(dir, 'autosave.json');

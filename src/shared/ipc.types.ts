@@ -25,9 +25,17 @@ export function unwrap<T>(result: IPCResult<T>): T {
 }
 
 export interface AppSettings {
-  apiKey: string;
-  model: string;
+  apiKey?: string;
+  model?: string;
   quality: 'fast' | 'quality';
+  activeProvider?: 'openai' | 'anthropic';
+  openaiBaseUrl?: string;
+  openaiApiKey?: string;
+  openaiModel?: string;
+  anthropicApiKey?: string;
+  anthropicModel?: string;
+  openaiModelList?: string[];
+  anthropicModelList?: string[];
 }
 
 export interface ParseWorldPayload {
@@ -65,6 +73,7 @@ export interface SavedWorld {
   name: string;
   timestamp: number;
   sceneGraph: SceneGraph;
+  generatedCode?: string | null;
   flags: Record<string, boolean>;
   playerPosition: [number, number, number];
 }

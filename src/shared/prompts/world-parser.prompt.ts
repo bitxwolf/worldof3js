@@ -40,6 +40,7 @@ SCHEMA (output exactly this structure):
   "objects": [
     {
       "id": "snake_case_unique",
+      "name": string (short display name, e.g. "Ancient Well"),
       "type": string (specific: "ancient_well"|"blacksmith_forge"|"iron_chest" not just "object"),
       "description": string (visual detail: color, material, state, size),
       "position": [x, 0, z],
@@ -51,8 +52,9 @@ SCHEMA (output exactly this structure):
     }
   ],
   "lights": [
-    { "type": "ambient"|"directional"|"point", "color": 0xRRGGBB, "intensity": number, "position": [x,y,z] }
+    { "id": "light_1", "type": "ambient"|"directional"|"point", "color": "#RRGGBB", "intensity": number, "position": [x,y,z] }
   ],
+  NOTE: lights[].color must be a hex string like "#ffffff" or "#ff8800", NOT a number.
   "events": [
     {
       "id": "snake_case_unique",

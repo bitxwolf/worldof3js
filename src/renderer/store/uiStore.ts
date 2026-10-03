@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { useWorldStore } from './worldStore';
 
 export interface ToastNotification {
   id: string;
@@ -70,6 +71,7 @@ interface UIState {
   cameraMode: 'orbit' | 'walk';
   wireframe: boolean;
   shadowsEnabled: boolean;
+  isNight: boolean;
 
   // Biome & Procedural Tuning
   seed: number;
@@ -128,6 +130,8 @@ interface UIState {
   setCameraMode: (mode: 'orbit' | 'walk') => void;
   toggleWireframe: () => void;
   toggleShadows: () => void;
+  toggleDayNight: () => void;
+  setIsNight: (isNight: boolean) => void;
 
   setSeed: (seed: number) => void;
   reseed: () => void;
@@ -163,6 +167,7 @@ export const useUIStore = create<UIState>((set) => ({
   cameraMode: 'orbit',
   wireframe: false,
   shadowsEnabled: true,
+  isNight: false,
 
   seed: 482910,
   activeBiome: 'pine',
@@ -252,6 +257,44 @@ export const useUIStore = create<UIState>((set) => ({
   setCameraMode: (cameraMode) => set({ cameraMode }),
   toggleWireframe: () => set((state) => ({ wireframe: !state.wireframe })),
   toggleShadows: () => set((state) => ({ shadowsEnabled: !state.shadowsEnabled })),
+  toggleDayNight: () =>
+    set((state) => {
+      const next = !state.isNight;
+      const message = next ? 'Shifted to Night mode (Moon & Starfield)' : 'Shifted to Day mode (Sun & Shadows)';
+      const notification: ToastNotification = {
+        id: `notif_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+        message,
+        type: 'info',
+      };
+      const logEntry: IpcLogEntry = {
+        id: `log_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+        text: `[LIGHTING:CYCLE] ${message}`,
+        type: 'info',
+        timestamp: Date.now(),
+      };
+
+      // Sync sceneGraph timeOfDay if world is active
+      try {
+        const ws = useWorldStore.getState();
+        if (ws.sceneGraph?.world) {
+          ws.patchSceneGraph({
+            world: {
+              ...ws.sceneGraph.world,
+              timeOfDay: next ? 'night' : 'afternoon',
+            },
+          });
+        }
+      } catch {
+        // ignore if not initialized
+      }
+
+      return {
+        isNight: next,
+        notifications: [...state.notifications.slice(-4), notification],
+        ipcLogs: [...state.ipcLogs.slice(-199), logEntry],
+      };
+    }),
+  setIsNight: (isNight) => set({ isNight }),
 
   setSeed: (seed) => set({ seed }),
   reseed: () =>

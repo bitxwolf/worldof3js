@@ -12,11 +12,12 @@ export const IPC_CHANNELS = {
   LLM_STREAM_ERROR:  'llm:stream-error',
 
   // Files
-  FILE_OPEN_DIALOG:  'file:open-dialog',
-  FILE_READ:         'file:read',
-  FILE_SAVE_WORLD:   'file:save-world',
-  FILE_LOAD_WORLD:   'file:load-world',
-  FILE_EXPORT_HTML:  'file:export-html',
+  FILE_OPEN_DIALOG:       'file:open-dialog',
+  FILE_READ:              'file:read',
+  FILE_SAVE_WORLD:        'file:save-world',
+  FILE_LOAD_WORLD:        'file:load-world',
+  FILE_EXPORT_HTML:       'file:export-html',
+  FILE_AUTOSAVE_WORLD:    'file:autosave-world',
 
   // Images
   IMAGE_PROCESS:     'image:process',
@@ -35,3 +36,7 @@ export const LIMITS = {
   MAX_NPC_CONVERSATION_TURNS: 10,
   LLM_TIMEOUT_MS: 30000,
 } as const;
+
+export const MAX_PROMPT_LENGTH = LIMITS.MAX_PROMPT_LENGTH;
+export const MAX_NPC_CONVERSATION_TURNS = LIMITS.MAX_NPC_CONVERSATION_TURNS;
+

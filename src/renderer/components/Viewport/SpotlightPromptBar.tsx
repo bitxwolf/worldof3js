@@ -15,8 +15,6 @@ export const SpotlightPromptBar = () => {
     setGenerating,
     pipelineProgress,
     setPipelineProgress,
-    setActiveBiome,
-    reseed,
     addIpcLog,
     showNotification,
   } = useUIStore();
@@ -49,6 +47,8 @@ export const SpotlightPromptBar = () => {
 
     try {
       if (window.electronAPI?.parseWorld) {
+        // Lock out preset biome effect BEFORE the async IPC call
+        useWorldStore.getState().setCustomWorldActive(true);
         setPipelineProgress(45);
         setStepLabel('Parsing narrative into structured 3D SceneGraph...');
         const { uploadedDocument, uploadedImages } = useWorldStore.getState();
@@ -72,8 +72,6 @@ export const SpotlightPromptBar = () => {
             }
           }
 
-          setActiveBiome(targetBiome);
-          reseed();
           setPipelineProgress(100);
           setStepLabel('Generation complete!');
           addIpcLog(`[PROCEDURAL:DONE] Spawned generated world for biome '${targetBiome}'.`, 'success');
@@ -87,34 +85,22 @@ export const SpotlightPromptBar = () => {
         }
       }
     } catch (err: unknown) {
-      console.warn('Real IPC generation call failed, falling back to instant procedural compilation:', err);
+      console.warn('Real IPC generation call failed:', err);
+      showNotification('Unexpected generation error', 5000, 'error');
+      addIpcLog(`[GEN ERROR] ${String(err)}`, 'error');
+      useWorldStore.getState().setCustomWorldActive(false);
+      setGenerating(false);
+      setPipelineProgress(0);
+      setStepLabel('');
     }
 
-    // High fidelity simulation / procedural pipeline
-    setTimeout(() => {
-      setPipelineProgress(60);
-      setStepLabel('Zod Schema: Validating node constraints & bounds...');
-      addIpcLog('[ZOD:VALIDATE] 48 node definitions checked against schema.', 'success');
-
-      setTimeout(() => {
-        setPipelineProgress(90);
-        setStepLabel('AssetPipeline: Baking multi-tier procedural meshes...');
-
-        setTimeout(() => {
-          setActiveBiome(targetBiome);
-          reseed();
-          setPipelineProgress(100);
-          setStepLabel('Generation complete!');
-          addIpcLog(`[PROCEDURAL:BIOME] Applied preset '${targetBiome}'.`, 'warn');
-          showNotification(`World updated to ${targetBiome} biome!`, 3000, 'success');
-
-          setTimeout(() => {
-            setGenerating(false);
-            setPipelineProgress(0);
-          }, 800);
-        }, 500);
-      }, 600);
-    }, 600);
+    // Generation failed — surface the error, never fall through to biome swap
+    showNotification('Generation failed. Check API key in Settings.', 6000, 'error');
+    addIpcLog('[GEN ERROR] Generation failed — no fallback.', 'error');
+    useWorldStore.getState().setCustomWorldActive(false);
+    setGenerating(false);
+    setPipelineProgress(0);
+    setStepLabel('');
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {

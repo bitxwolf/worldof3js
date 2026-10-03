@@ -1,5 +1,9 @@
 import { ipcMain, BrowserWindow } from 'electron';
-import { IPC_CHANNELS } from '../../shared/constants';
+import {
+  IPC_CHANNELS,
+  MAX_PROMPT_LENGTH,
+  MAX_NPC_CONVERSATION_TURNS,
+} from '../../shared/constants';
 import type {
   IPCResult,
   ParseWorldPayload,
@@ -34,7 +38,12 @@ export function registerLLMHandlers(getWindow: () => BrowserWindow | null): void
 
   safeHandle<ParseWorldPayload, SceneGraph>(
     IPC_CHANNELS.LLM_PARSE_WORLD,
-    (payload) => claude.parseWorld(payload)
+    (payload) => {
+      if (payload.text && payload.text.length > MAX_PROMPT_LENGTH) {
+        throw new Error(`Input prompt exceeds maximum allowed length of ${MAX_PROMPT_LENGTH} characters`);
+      }
+      return claude.parseWorld(payload);
+    }
   );
 
   safeHandle<SceneGraph, string>(
@@ -44,7 +53,12 @@ export function registerLLMHandlers(getWindow: () => BrowserWindow | null): void
 
   safeHandle<UpdateWorldPayload, Partial<SceneGraph>>(
     IPC_CHANNELS.LLM_UPDATE_WORLD,
-    (payload) => claude.updateWorld(payload)
+    (payload) => {
+      if (payload.updatePrompt && payload.updatePrompt.length > MAX_PROMPT_LENGTH) {
+        throw new Error(`Update prompt exceeds maximum allowed length of ${MAX_PROMPT_LENGTH} characters`);
+      }
+      return claude.updateWorld(payload);
+    }
   );
 
   ipcMain.handle(
@@ -53,6 +67,20 @@ export function registerLLMHandlers(getWindow: () => BrowserWindow | null): void
       const win = getWindow();
       if (!win) {
         return { success: false, error: { name: 'WindowError', message: 'No window available' } };
+      }
+
+      if (payload.playerMessage && payload.playerMessage.length > MAX_PROMPT_LENGTH) {
+        return {
+          success: false,
+          error: {
+            name: 'ValidationError',
+            message: `Player message exceeds maximum allowed length of ${MAX_PROMPT_LENGTH} characters`,
+          },
+        };
+      }
+
+      if (payload.dialogueHistory && payload.dialogueHistory.length > MAX_NPC_CONVERSATION_TURNS) {
+        payload.dialogueHistory = payload.dialogueHistory.slice(-MAX_NPC_CONVERSATION_TURNS);
       }
 
       try {

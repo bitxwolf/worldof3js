@@ -75,3 +75,227 @@ html, body, #root {
 #crosshair::after {
   top: -1px; left: -9px; width: 18px; height: 2px;
 }
+
+/* Settings Modal Styles */
+.settings-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.settings-label {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #9ca3af;
+}
+
+.provider-toggle {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.provider-toggle button {
+  flex: 1;
+  padding: 0.6rem 0.8rem;
+  border-radius: 0.5rem;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: #9ca3af;
+  background-color: #030712;
+  border: 1px solid #1f2937;
+  transition: all 0.15s ease-in-out;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  cursor: pointer;
+}
+
+.provider-toggle button:hover {
+  border-color: #374151;
+  color: #e5e7eb;
+}
+
+.provider-toggle button.active {
+  border-color: #6366f1;
+  background-color: rgba(99, 102, 241, 0.12);
+  color: #a5b4fc;
+  font-weight: 600;
+}
+
+.settings-card {
+  background-color: rgba(3, 7, 18, 0.6);
+  border: 1px solid #1f2937;
+  border-radius: 0.75rem;
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.settings-card-title {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #f3f4f6;
+  margin-bottom: 0.25rem;
+}
+
+.input-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.settings-input {
+  flex: 1;
+  width: 100%;
+  background-color: #030712;
+  border: 1px solid #374151;
+  border-radius: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  color: #f9fafb;
+  font-size: 0.75rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.settings-input:focus {
+  border-color: #6366f1;
+}
+
+.settings-input::placeholder {
+  color: #6b7280;
+}
+
+.fetch-btn {
+  padding: 0.5rem 1rem;
+  background-color: #4f46e5;
+  color: #ffffff;
+  font-size: 0.75rem;
+  font-weight: 600;
+  border-radius: 0.5rem;
+  white-space: nowrap;
+  transition: all 0.15s;
+  border: none;
+  cursor: pointer;
+}
+
+.fetch-btn:hover:not(:disabled) {
+  background-color: #6366f1;
+}
+
+.fetch-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.settings-select {
+  width: 100%;
+  background-color: #030712;
+  border: 1px solid #374151;
+  border-radius: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  color: #f9fafb;
+  font-size: 0.75rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  outline: none;
+  transition: border-color 0.15s;
+  cursor: pointer;
+}
+
+.settings-select:focus {
+  border-color: #6366f1;
+}
+
+.settings-select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.status-ok {
+  font-size: 0.75rem;
+  color: #34d399;
+  font-weight: 500;
+}
+
+.status-error {
+  font-size: 0.75rem;
+  color: #f87171;
+  font-weight: 500;
+}
+
+.quality-toggle {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+.quality-toggle button {
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.5rem;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: #9ca3af;
+  background-color: #030712;
+  border: 1px solid #1f2937;
+  transition: all 0.15s;
+  text-align: center;
+  cursor: pointer;
+}
+
+.quality-toggle button:hover {
+  border-color: #374151;
+  color: #e5e7eb;
+}
+
+.quality-toggle button.active {
+  border-color: #6366f1;
+  background-color: rgba(99, 102, 241, 0.12);
+  color: #a5b4fc;
+  font-weight: 600;
+}
+
+.settings-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid #1f2937;
+}
+
+.btn-cancel {
+  padding: 0.5rem 1rem;
+  background-color: #1f2937;
+  color: #d1d5db;
+  font-size: 0.75rem;
+  font-weight: 500;
+  border-radius: 0.5rem;
+  transition: background-color 0.15s;
+  border: none;
+  cursor: pointer;
+}
+
+.btn-cancel:hover {
+  background-color: #374151;
+  color: #ffffff;
+}
+
+.btn-save {
+  padding: 0.5rem 1rem;
+  background-color: #4f46e5;
+  color: #ffffff;
+  font-size: 0.75rem;
+  font-weight: 600;
+  border-radius: 0.5rem;
+  transition: all 0.15s;
+  border: none;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(79, 70, 229, 0.3);
+}
+
+.btn-save:hover {
+  background-color: #6366f1;
+}

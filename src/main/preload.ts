@@ -12,6 +12,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   saveSettings: (settings: unknown) =>
     ipcRenderer.invoke(IPC_CHANNELS.APP_SAVE_SETTINGS, settings),
 
+  fetchOpenAIModels: (p: { baseUrl: string; apiKey: string }) =>
+    ipcRenderer.invoke('settings:fetch-openai-models', p),
+
+  fetchAnthropicModels: (p: { apiKey: string }) =>
+    ipcRenderer.invoke('settings:fetch-anthropic-models', p),
+
   // LLM
   parseWorld: (payload: unknown) =>
     ipcRenderer.invoke(IPC_CHANNELS.LLM_PARSE_WORLD, payload),

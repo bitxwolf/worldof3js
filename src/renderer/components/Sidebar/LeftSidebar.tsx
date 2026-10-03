@@ -74,6 +74,8 @@ export const LeftSidebar = () => {
     setActiveBiome,
     tuningParams,
     setTuningParam,
+    isNight,
+    toggleDayNight,
     selectedNode,
     setSelectedNode,
     sceneHierarchy,
@@ -434,6 +436,32 @@ export const LeftSidebar = () => {
               onChange={(e) => setTuningParam('fogDensity', parseFloat(e.target.value))}
               className="w-full h-1 bg-white/20 rounded-lg appearance-none cursor-pointer accent-blue-500"
             />
+          </div>
+
+          {/* Time of Day: Day / Night Shift */}
+          <div className="p-3 rounded-lg border border-white/10 bg-white/5 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="font-semibold text-white flex items-center space-x-1.5">
+                <i className={`ph ${isNight ? 'ph-moon text-indigo-400' : 'ph-sun text-amber-400'} text-base`} />
+                <span>Time of Day</span>
+              </span>
+              <button
+                type="button"
+                onClick={toggleDayNight}
+                className={`px-2.5 py-1 rounded-md text-xs font-medium transition flex items-center space-x-1.5 cursor-pointer ${
+                  isNight
+                    ? 'bg-indigo-600 text-white hover:bg-indigo-500 shadow-sm'
+                    : 'bg-amber-500/20 text-amber-300 border border-amber-500/30 hover:bg-amber-500/30'
+                }`}
+              >
+                <i className={`ph ${isNight ? 'ph-sun' : 'ph-moon'}`} />
+                <span>{isNight ? 'Shift to Day' : 'Shift to Night'}</span>
+              </button>
+            </div>
+            <div className="text-[11px] text-mac-textMuted flex items-center justify-between">
+              <span>{isNight ? 'Night mode: Moon & starfield' : 'Day mode: Default Sun & shadows'}</span>
+              <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-black/40 text-mac-textMuted border border-white/5">Key: N</span>
+            </div>
           </div>
 
           <div className="space-y-1">

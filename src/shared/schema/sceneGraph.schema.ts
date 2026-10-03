@@ -29,7 +29,7 @@ export const ZoneSchema = z.object({
 });
 
 export const CharacterSchema = z.object({
-  id: z.string().min(1).regex(/^[a-z0-9_]+$/, 'Character id must be snake_case'),
+  id: z.string().min(1).regex(/^[a-zA-Z0-9_-]+$/, 'Character id must be alphanumeric, dashes, or underscores'),
   name: z.string().min(1).max(100),
   description: z.string().min(1),
   personality: z.string().min(1),
@@ -44,7 +44,7 @@ export const CharacterSchema = z.object({
 
 export const WorldObjectSchema = z.object({
   id: z.string().min(1),
-  name: z.string().min(1),
+  name: z.string().min(1).optional(),
   type: z.string().min(1),
   description: z.string().optional(),
   position: Vector3Tuple,
@@ -58,9 +58,12 @@ export const WorldObjectSchema = z.object({
 });
 
 export const LightConfigSchema = z.object({
-  id: z.string().min(1),
+  id: z.string().min(1).optional(),
   type: z.enum(['ambient', 'directional', 'point', 'spot']),
-  color: z.string().min(1),
+  color: z.union([
+    z.string().min(1),
+    z.number().int().min(0).max(0xffffff).transform(n => `#${n.toString(16).padStart(6, '0')}`),
+  ]),
   intensity: z.number().nonnegative(),
   position: Vector3Tuple.optional(),
   target: Vector3Tuple.optional(),
@@ -129,6 +132,29 @@ export const SceneGraphSchema = z.object({
   flags: z.record(z.boolean()).default({}),
 });
 
+export const SavedWorldSchema = z.object({
+  name: z.string().default('Untitled World'),
+  timestamp: z.number().default(() => Date.now()),
+  sceneGraph: SceneGraphSchema,
+  generatedCode: z.string().optional(),
+  flags: z.record(z.boolean()).default({}),
+  playerPosition: Vector3Tuple.default([0, 1.7, 0]),
+});
+
+export const AppSettingsSchema = z.object({
+  apiKey: z.string().default(''),
+  model: z.string().default('nvidia/nemotron-3-ultra-550b-a55b:free'),
+  quality: z.enum(['fast', 'quality']).default('fast'),
+  activeProvider: z.enum(['openai', 'anthropic']).default('openai'),
+  openaiBaseUrl: z.string().default('https://openrouter.ai/api/v1'),
+  openaiApiKey: z.string().default(''),
+  openaiModel: z.string().default(''),
+  anthropicApiKey: z.string().default(''),
+  anthropicModel: z.string().default(''),
+  openaiModelList: z.array(z.string()).default([]),
+  anthropicModelList: z.array(z.string()).default([]),
+}).strict();
+
 export type SceneGraph = z.infer<typeof SceneGraphSchema>;
 export type WorldMeta = z.infer<typeof WorldMetaSchema>;
 export type PlayerConfig = z.infer<typeof PlayerConfigSchema>;
@@ -140,3 +166,6 @@ export type EventTrigger = z.infer<typeof EventTriggerSchema>;
 export type EventAction = z.infer<typeof EventActionSchema>;
 export type SkyboxConfig = z.infer<typeof SkyboxConfigSchema>;
 export type AtmosphereConfig = z.infer<typeof AtmosphereConfigSchema>;
+export type SavedWorld = z.infer<typeof SavedWorldSchema>;
+export type AppSettings = z.infer<typeof AppSettingsSchema>;
+

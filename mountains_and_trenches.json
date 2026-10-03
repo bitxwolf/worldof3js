@@ -1,0 +1,573 @@
+{
+  "name": "Gorge of the Titan Peaks & Abyssal Trench",
+  "timestamp": 1774300000000,
+  "playerPosition": [
+    0,
+    8.5,
+    32
+  ],
+  "flags": {
+    "bridge_stabilized": false,
+    "crystal_recovered": false,
+    "trench_vent_sealed": false,
+    "summit_scouted": false
+  },
+  "generatedCode": "// ── Procedural Mountains and Trenches Scene Population ───────────────────\n// 1. Towering Mountain Peaks\nfunction createMountainPeak(x, y, z, radius, height, rockColor, hasSnowCap, id, name) {\n  const peakGroup = new THREE.Group();\n  peakGroup.position.set(x, y, z);\n\n  // Main rock body with faceted low-poly alpine finish\n  const bodyGeo = new THREE.ConeGeometry(radius, height, 7, 3);\n  const bodyMat = new THREE.MeshStandardMaterial({\n    color: rockColor,\n    roughness: 0.94,\n    metalness: 0.05,\n    flatShading: true,\n  });\n  const bodyMesh = new THREE.Mesh(bodyGeo, bodyMat);\n  bodyMesh.position.y = height / 2;\n  bodyMesh.castShadow = true;\n  bodyMesh.receiveShadow = true;\n  peakGroup.add(bodyMesh);\n\n  // Snow cap on top 35% of peak if specified\n  if (hasSnowCap) {\n    const capHeight = height * 0.35;\n    const capRadius = radius * 0.38;\n    const capGeo = new THREE.ConeGeometry(capRadius, capHeight, 7, 1);\n    const capMat = new THREE.MeshStandardMaterial({\n      color: 0xf1f5f9,\n      roughness: 0.6,\n      metalness: 0.02,\n      flatShading: true,\n    });\n    const capMesh = new THREE.Mesh(capGeo, capMat);\n    capMesh.position.y = height - capHeight / 2 + 0.1;\n    capMesh.castShadow = true;\n    peakGroup.add(capMesh);\n  }\n\n  peakGroup.userData = { id, name, type: 'geology', collidable: true };\n  scene.add(peakGroup);\n  return peakGroup;\n}\n\n// Spawn Mountain Range Peaks\ncreateMountainPeak(0, 0, -52, 26, 44, 0x524b45, true, 'mountain_peak_north', 'Titan Horn Peak');\ncreateMountainPeak(42, 0, -38, 22, 34, 0x61564c, true, 'mountain_peak_east', 'Eastern Crag Massif');\ncreateMountainPeak(-40, 0, -32, 24, 36, 0x5a5047, true, 'mountain_peak_west', 'Western Spire Ridge');\ncreateMountainPeak(-22, 0, -48, 16, 28, 0x4d443c, false, 'mountain_peak_nw', 'Northwestern Ridge Horn');\ncreateMountainPeak(26, 0, -46, 17, 30, 0x4f473f, false, 'mountain_peak_ne', 'Northeastern Saddle Peak');\n\n// 2. The Abyssal Trench: Sheer Canyon Walls and Trench Floor\nconst cliffMat = new THREE.MeshStandardMaterial({\n  color: 0x36281e,\n  roughness: 0.96,\n  metalness: 0.04,\n  flatShading: true,\n});\n\n// South Trench Cliff Wall (Y: 8 to -18)\nconst southCliffGeo = new THREE.BoxGeometry(90, 26, 6);\nconst southCliff = new THREE.Mesh(southCliffGeo, cliffMat);\nsouthCliff.position.set(0, -5, 11);\nsouthCliff.receiveShadow = true;\nsouthCliff.castShadow = true;\nsouthCliff.userData = { id: 'trench_south_cliff', name: 'South Trench Escarpment', type: 'structure', collidable: true };\nscene.add(southCliff);\n\n// North Trench Cliff Wall (Y: 8 to -18)\nconst northCliffGeo = new THREE.BoxGeometry(90, 26, 6);\nconst northCliff = new THREE.Mesh(northCliffGeo, cliffMat);\nnorthCliff.position.set(0, -5, -11);\nnorthCliff.receiveShadow = true;\nnorthCliff.castShadow = true;\nnorthCliff.userData = { id: 'trench_north_cliff', name: 'North Trench Escarpment', type: 'structure', collidable: true };\nscene.add(northCliff);\n\n// Trench Floor Bed (Y = -18)\nconst trenchFloorMat = new THREE.MeshStandardMaterial({\n  color: 0x1e1510,\n  roughness: 0.98,\n  metalness: 0.1,\n});\nconst trenchFloorGeo = new THREE.BoxGeometry(96, 2, 22);\nconst trenchFloor = new THREE.Mesh(trenchFloorGeo, trenchFloorMat);\ntrenchFloor.position.set(0, -18, 0);\ntrenchFloor.receiveShadow = true;\ntrenchFloor.userData = { id: 'trench_floor_bed', name: 'Trench Bed Rock', type: 'terrain', collidable: true };\nscene.add(trenchFloor);\n\n// Glowing Geothermal Rift Fissure along the Trench Floor\nconst riftGlowMat = new THREE.MeshStandardMaterial({\n  color: 0x00e5ff,\n  emissive: 0x00a3cc,\n  emissiveIntensity: 1.2,\n  roughness: 0.2,\n});\nconst riftGlowGeo = new THREE.PlaneGeometry(60, 3);\nconst riftGlow = new THREE.Mesh(riftGlowGeo, riftGlowMat);\nriftGlow.rotation.x = -Math.PI / 2;\nriftGlow.position.set(0, -16.9, 0);\nriftGlow.userData = { id: 'geothermal_steam_vent', name: 'Geothermal Rift Fissure', type: 'structure', collidable: false };\nscene.add(riftGlow);\n\n// Luminescent Chasm Crystal Formation in Trench\nconst crystalGroup = new THREE.Group();\ncrystalGroup.position.set(12, -17.2, -2);\nconst crystalMat = new THREE.MeshStandardMaterial({\n  color: 0x38bdf8,\n  emissive: 0x0284c7,\n  emissiveIntensity: 1.5,\n  roughness: 0.15,\n  metalness: 0.1,\n});\nfor (let c = 0; c < 5; c++) {\n  const cGeo = new THREE.OctahedronGeometry(0.4 + c * 0.15, 0);\n  const cMesh = new THREE.Mesh(cGeo, crystalMat);\n  cMesh.position.set((c - 2) * 0.35, 0.4 + (c % 2) * 0.3, (c % 3 - 1) * 0.25);\n  cMesh.rotation.set(c * 0.3, c * 0.5, c * 0.2);\n  cMesh.scale.set(0.6, 1.8, 0.6);\n  crystalGroup.add(cMesh);\n}\ncrystalGroup.userData = {\n  id: 'luminous_chasm_crystal',\n  name: 'Luminescent Chasm Crystal',\n  type: 'item',\n  collidable: false,\n  interactable: true,\n  pickable: true,\n};\nscene.add(crystalGroup);\n\n// 3. The Great Suspension Bridge Spanning the Trench (at Y = 8.2)\nconst bridgeGroup = new THREE.Group();\nbridgeGroup.position.set(0, 8.2, 0);\n\n// Wooden Deck Planks\nconst plankMat = new THREE.MeshStandardMaterial({ color: 0x5c4033, roughness: 0.9 });\nconst cableMat = new THREE.MeshStandardMaterial({ color: 0x222226, metalness: 0.8, roughness: 0.4 });\nconst pylonMat = new THREE.MeshStandardMaterial({ color: 0x3f352e, roughness: 0.92 });\n\nfor (let z = -7.5; z <= 7.5; z += 0.6) {\n  const plank = new THREE.Mesh(new THREE.BoxGeometry(4.2, 0.14, 0.5), plankMat);\n  plank.position.set(0, 0, z);\n  plank.castShadow = true;\n  plank.receiveShadow = true;\n  bridgeGroup.add(plank);\n}\n\n// Side Guide Cables\nconst leftCable = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 16, 6), cableMat);\nleftCable.rotation.x = Math.PI / 2;\nleftCable.position.set(-2.0, 0.9, 0);\nbridgeGroup.add(leftCable);\n\nconst rightCable = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 16, 6), cableMat);\nrightCable.rotation.x = Math.PI / 2;\nrightCable.position.set(2.0, 0.9, 0);\nbridgeGroup.add(rightCable);\n\n// 4 Anchor Pylons at the bridge ends\n[[-2.2, -8.2], [2.2, -8.2], [-2.2, 8.2], [2.2, 8.2]].forEach(([px, pz]) => {\n  const pylon = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.3, 4.5, 8), pylonMat);\n  pylon.position.set(px, 1.8, pz);\n  pylon.castShadow = true;\n  pylon.receiveShadow = true;\n  bridgeGroup.add(pylon);\n});\n\n// Cable Winch Mechanism on South Approach\nconst winchMat = new THREE.MeshStandardMaterial({ color: 0x475569, metalness: 0.6, roughness: 0.5 });\nconst winch = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.55, 1.2, 10), winchMat);\nwinch.position.set(3.2, 0.6, 8.5);\nwinch.castShadow = true;\nwinch.userData = { id: 'bridge_winch_mechanism', name: 'Cable Tension Winch', type: 'item', collidable: true, interactable: true };\nbridgeGroup.add(winch);\n\nbridgeGroup.userData = {\n  id: 'trench_suspension_bridge',\n  name: 'Great Trench Suspension Bridge',\n  type: 'structure',\n  collidable: true,\n  interactable: true,\n};\nscene.add(bridgeGroup);\n\n// 4. Overlook Watchtower, Torches & Path\nif (assets && assets.helpers) {\n  // Alpine Watchtower on southern promontory\n  assets.helpers.createBuilding(-15, 24, {\n    width: 5,\n    height: 9,\n    depth: 5,\n    style: 'tower',\n    color: 0x6e6359,\n  });\n\n  // Torches at bridge entrance and outpost\n  assets.helpers.createTorch(2.4, 8.8, 8.2);\n  assets.helpers.createTorch(-2.4, 8.8, 8.2);\n  assets.helpers.createTorch(2.4, 8.8, -8.2);\n  assets.helpers.createTorch(-2.4, 8.8, -8.2);\n  assets.helpers.createTorch(-12.5, 8.8, 22.0);\n\n  // Path across the overlook towards the bridge\n  assets.helpers.createPath([\n    [0, 32],\n    [0, 20],\n    [0, 8.5],\n  ], 2.8);\n\n  // High altitude Conifer Pines along the mountain terraces\n  assets.helpers.createTree(-12, 18, { type: 'pine', scale: 1.3 });\n  assets.helpers.createTree(14, 20, { type: 'pine', scale: 1.2 });\n  assets.helpers.createTree(-18, 28, { type: 'pine', scale: 1.5 });\n  assets.helpers.createTree(18, 26, { type: 'pine', scale: 1.4 });\n  assets.helpers.createTree(-10, -20, { type: 'pine', scale: 1.2 });\n  assets.helpers.createTree(12, -22, { type: 'pine', scale: 1.3 });\n  assets.helpers.createTree(-26, -18, { type: 'pine', scale: 1.1 });\n  assets.helpers.createTree(25, -20, { type: 'pine', scale: 1.2 });\n\n  // Granite Boulders on cliffs and ridges\n  assets.helpers.createRockCluster(8, 12, 4, 2.5);\n  assets.helpers.createRockCluster(-10, 14, 3, 2.0);\n  assets.helpers.createRockCluster(16, -14, 4, 3.0);\n  assets.helpers.createRockCluster(-16, -14, 4, 2.8);\n}\n\n// 5. High Summit Solar Beacon atop Titan Horn Peak\nconst beaconMat = new THREE.MeshStandardMaterial({\n  color: 0xf59e0b,\n  emissive: 0xd97706,\n  emissiveIntensity: 0.8,\n  metalness: 0.8,\n  roughness: 0.2,\n});\nconst beaconPillar = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.4, 2.5, 8), beaconMat);\nbeaconPillar.position.set(0, 45.2, -52);\nbeaconPillar.castShadow = true;\nbeaconPillar.userData = { id: 'summit_beacon', name: 'High Summit Solar Beacon', type: 'item', collidable: true, interactable: true };\nscene.add(beaconPillar);",
+  "sceneGraph": {
+    "version": "1.0",
+    "world": {
+      "name": "Gorge of the Titan Peaks & Abyssal Trench",
+      "description": "A monumental high-altitude alpine canyon bordered by towering jagged mountain horns and divided by a sheer abyssal trench. A reinforced suspension bridge connects the observation ridges across the rift, while mining rigs extract luminescent minerals from the perilous trench floor.",
+      "biome": "desert",
+      "timeOfDay": "dusk",
+      "weather": "clear",
+      "scale": "large"
+    },
+    "player": {
+      "spawn": [
+        0,
+        8.5,
+        32
+      ],
+      "startPosition": [
+        0,
+        8.5,
+        32
+      ],
+      "movementSpeed": 4.5,
+      "jumpHeight": 1.8
+    },
+    "zones": [
+      {
+        "id": "mountain_overlook",
+        "name": "Southern Mountain Overlook",
+        "bounds": {
+          "center": [
+            0,
+            8.5,
+            30
+          ],
+          "radius": 15
+        },
+        "description": "A rocky alpine promontory looking north toward the peaks and the trench drop-off."
+      },
+      {
+        "id": "abyssal_trench",
+        "name": "The Abyssal Trench",
+        "bounds": {
+          "center": [
+            0,
+            -16,
+            0
+          ],
+          "radius": 45
+        },
+        "description": "A deep tectonic chasm plunging over 25 meters down into perpetual shadow."
+      },
+      {
+        "id": "skybridge_crossing",
+        "name": "Trench Skybridge",
+        "bounds": {
+          "center": [
+            0,
+            8.2,
+            0
+          ],
+          "radius": 12
+        },
+        "description": "A heavy timber and cable suspension bridge spanning the abyss between the mountain ridges."
+      },
+      {
+        "id": "northern_peaks",
+        "name": "Titan Summit Range",
+        "bounds": {
+          "center": [
+            0,
+            28,
+            -50
+          ],
+          "radius": 40
+        },
+        "description": "Towering snow-dusted granite peaks piercing the dusk sky."
+      },
+      {
+        "id": "trench_excavation",
+        "name": "Chasm Floor Excavation",
+        "bounds": {
+          "center": [
+            12,
+            -18,
+            -2
+          ],
+          "radius": 18
+        },
+        "description": "A geothermal prospecting site rich in glowing crystal formations."
+      }
+    ],
+    "characters": [
+      {
+        "id": "scout_valen",
+        "name": "Scout Valen",
+        "description": "A seasoned alpine mountaineer in insulated leather and climbing harness, keeping watch over the chasm.",
+        "personality": "Vigilant, weather-hardened, and cautious about the unstable trench walls.",
+        "secrets": [
+          "The northern horn holds an ancient pre-collapse signal beacon."
+        ],
+        "knowledge": [
+          "Safe climbing routes",
+          "Bridge tension tolerances",
+          "Alpine wind patterns"
+        ],
+        "position": [
+          -6,
+          8.5,
+          26
+        ],
+        "behavior": "idle",
+        "dialogueSeed": "Tread lightly near the ridge edge. The trench drop is steep enough to swallow sound itself."
+      },
+      {
+        "id": "engineer_korin",
+        "name": "Chief Engineer Korin",
+        "description": "A heavy-set dwarven artisan inspecting the iron tension cables anchoring the suspension bridge.",
+        "personality": "Gruff, pragmatic, and obsessive about structural integrity.",
+        "secrets": [
+          "The lower trench fissure is heating up rapidly due to geothermal expansion."
+        ],
+        "knowledge": [
+          "Suspension engineering",
+          "Mineral resonance",
+          "Winch mechanics"
+        ],
+        "position": [
+          4,
+          8.5,
+          14
+        ],
+        "behavior": "patrol",
+        "patrolPath": [
+          [
+            4,
+            8.5,
+            14
+          ],
+          [
+            2,
+            8.5,
+            10
+          ],
+          [
+            0,
+            8.2,
+            2
+          ],
+          [
+            4,
+            8.5,
+            14
+          ]
+        ],
+        "dialogueSeed": "The southern anchor winch is rattling again. We need a resonant chasm crystal from the floor to calibrate the dampeners."
+      }
+    ],
+    "objects": [
+      {
+        "id": "mountain_peak_north",
+        "name": "Titan Horn Peak",
+        "type": "geology",
+        "description": "A colossal jagged mountain peak towering above the northern ridge.",
+        "position": [
+          0,
+          28,
+          -52
+        ],
+        "scale": [
+          26,
+          44,
+          26
+        ],
+        "collidable": true,
+        "interactable": false
+      },
+      {
+        "id": "mountain_peak_east",
+        "name": "Eastern Crag Massif",
+        "type": "geology",
+        "description": "A sharp granite peak catching the last rays of sunset.",
+        "position": [
+          42,
+          22,
+          -38
+        ],
+        "scale": [
+          22,
+          34,
+          22
+        ],
+        "collidable": true,
+        "interactable": false
+      },
+      {
+        "id": "mountain_peak_west",
+        "name": "Western Spire Ridge",
+        "type": "geology",
+        "description": "A wall of needle-sharp crags framing the western horizon.",
+        "position": [
+          -40,
+          24,
+          -32
+        ],
+        "scale": [
+          24,
+          36,
+          24
+        ],
+        "collidable": true,
+        "interactable": false
+      },
+      {
+        "id": "trench_south_cliff",
+        "name": "South Trench Escarpment",
+        "type": "structure",
+        "description": "Vertical bedrock cliff plunging down into the abyss.",
+        "position": [
+          0,
+          -5,
+          11
+        ],
+        "scale": [
+          90,
+          26,
+          6
+        ],
+        "collidable": true,
+        "interactable": false
+      },
+      {
+        "id": "trench_north_cliff",
+        "name": "North Trench Escarpment",
+        "type": "structure",
+        "description": "Sheer rock face opposite the player ridge forming the northern trench wall.",
+        "position": [
+          0,
+          -5,
+          -11
+        ],
+        "scale": [
+          90,
+          26,
+          6
+        ],
+        "collidable": true,
+        "interactable": false
+      },
+      {
+        "id": "trench_suspension_bridge",
+        "name": "Great Trench Suspension Bridge",
+        "type": "structure",
+        "description": "Heavy timber boardwalk supported by thick iron suspension cables spanning the trench chasm.",
+        "position": [
+          0,
+          8.2,
+          0
+        ],
+        "scale": [
+          4.5,
+          0.8,
+          20
+        ],
+        "collidable": true,
+        "interactable": true
+      },
+      {
+        "id": "bridge_winch_mechanism",
+        "name": "Cable Tension Winch",
+        "type": "item",
+        "description": "A geared mechanical winch regulating bridge cable stability.",
+        "position": [
+          3.2,
+          8.8,
+          8.5
+        ],
+        "scale": [
+          1.2,
+          1.4,
+          1.2
+        ],
+        "collidable": true,
+        "interactable": true
+      },
+      {
+        "id": "trench_floor_bed",
+        "name": "Trench Bed Rock",
+        "type": "terrain",
+        "description": "The deep rocky bottom of the tectonic trench.",
+        "position": [
+          0,
+          -18,
+          0
+        ],
+        "scale": [
+          96,
+          2,
+          22
+        ],
+        "collidable": true,
+        "interactable": false
+      },
+      {
+        "id": "geothermal_steam_vent",
+        "name": "Geothermal Steam Vent",
+        "type": "structure",
+        "description": "A jagged sulfurous cleft venting thermal heat from subterranean fissures.",
+        "position": [
+          0,
+          -16.9,
+          0
+        ],
+        "scale": [
+          60,
+          1,
+          3
+        ],
+        "collidable": false,
+        "interactable": true
+      },
+      {
+        "id": "luminous_chasm_crystal",
+        "name": "Luminescent Chasm Crystal",
+        "type": "item",
+        "description": "A pulsating cyan mineral cluster extracted from deep within the tectonic rift.",
+        "position": [
+          12,
+          -17.2,
+          -2
+        ],
+        "scale": [
+          0.8,
+          1.8,
+          0.8
+        ],
+        "collidable": false,
+        "interactable": true,
+        "pickable": true
+      },
+      {
+        "id": "alpine_watchtower",
+        "name": "Eagle's Nest Watchtower",
+        "type": "building",
+        "description": "An alpine timber and stone observation shelter perched over the valley.",
+        "position": [
+          -15,
+          11,
+          24
+        ],
+        "scale": [
+          5,
+          9,
+          5
+        ],
+        "collidable": true,
+        "interactable": true
+      },
+      {
+        "id": "summit_beacon",
+        "name": "High Summit Solar Beacon",
+        "type": "item",
+        "description": "A mirror and crystal beacon perched at the pinnacle of Titan Horn Peak.",
+        "position": [
+          0,
+          45.2,
+          -52
+        ],
+        "scale": [
+          1.5,
+          2.5,
+          1.5
+        ],
+        "collidable": true,
+        "interactable": true
+      },
+      {
+        "id": "ridge_pine_cluster_1",
+        "name": "Sturdy Alpine Pine",
+        "type": "foliage",
+        "description": "A resilient conifer clinging to the southern cliff edge.",
+        "position": [
+          -12,
+          8.5,
+          18
+        ],
+        "scale": [
+          1.5,
+          4,
+          1.5
+        ],
+        "collidable": true
+      },
+      {
+        "id": "ridge_pine_cluster_2",
+        "name": "Windblown Pine",
+        "type": "foliage",
+        "description": "A high-altitude pine tree shaped by mountain gales.",
+        "position": [
+          14,
+          8.5,
+          20
+        ],
+        "scale": [
+          1.3,
+          3.5,
+          1.3
+        ],
+        "collidable": true
+      },
+      {
+        "id": "boulder_ridge_guard",
+        "name": "Weathered Granite Boulder",
+        "type": "geology",
+        "description": "A massive fallen boulder marking the edge of the chasm path.",
+        "position": [
+          8,
+          8.5,
+          12
+        ],
+        "scale": [
+          2.5,
+          2,
+          2.5
+        ],
+        "collidable": true
+      }
+    ],
+    "lights": [
+      {
+        "id": "ambient_light",
+        "type": "ambient",
+        "color": "#4a3528",
+        "intensity": 0.5,
+        "castShadow": false
+      },
+      {
+        "id": "dusk_sunlight",
+        "type": "directional",
+        "color": "#ff8f4d",
+        "intensity": 1.4,
+        "position": [
+          -55,
+          42,
+          55
+        ],
+        "castShadow": true
+      },
+      {
+        "id": "abyss_crystal_glow",
+        "type": "point",
+        "color": "#00e5ff",
+        "intensity": 2.2,
+        "position": [
+          12,
+          -15.5,
+          -2
+        ],
+        "castShadow": false
+      },
+      {
+        "id": "bridge_pylon_torch",
+        "type": "point",
+        "color": "#ffaa33",
+        "intensity": 1.2,
+        "position": [
+          2.5,
+          10,
+          8
+        ],
+        "castShadow": true
+      },
+      {
+        "id": "summit_beacon_signal",
+        "type": "point",
+        "color": "#ff2233",
+        "intensity": 2.5,
+        "position": [
+          0,
+          46.5,
+          -52
+        ],
+        "castShadow": false
+      }
+    ],
+    "events": [
+      {
+        "id": "trench_drop_warning",
+        "type": "proximity",
+        "target": "trench_suspension_bridge",
+        "range": 4.5,
+        "action": {
+          "type": "show_text",
+          "payload": {
+            "text": "CAUTION: You are approaching the Great Trench. A 26-meter drop lies beneath the suspension bridge."
+          }
+        }
+      },
+      {
+        "id": "bridge_tension_inspect",
+        "type": "interaction",
+        "target": "bridge_winch_mechanism",
+        "action": {
+          "type": "show_text",
+          "payload": {
+            "text": "The winch gears are locked under heavy tension. Insert a resonant crystal to stabilize the counterbalance."
+          }
+        }
+      },
+      {
+        "id": "calibrate_bridge_winch",
+        "type": "item_use",
+        "target": "bridge_winch_mechanism",
+        "requiredItem": "luminous_chasm_crystal",
+        "action": {
+          "type": "set_flag",
+          "payload": {
+            "flag": "bridge_stabilized",
+            "text": "The Luminescent Chasm Crystal hums with resonant frequency! The bridge anchors settle firmly into the bedrock."
+          }
+        }
+      },
+      {
+        "id": "summit_beacon_vista",
+        "type": "proximity",
+        "target": "summit_beacon",
+        "range": 3,
+        "action": {
+          "type": "show_text",
+          "payload": {
+            "text": "Titan Horn Summit reached! Across the mist, the entire rift system and mountain divide unfold below."
+          }
+        }
+      }
+    ],
+    "skybox": {
+      "type": "gradient",
+      "topColor": "#0b1126",
+      "bottomColor": "#422115",
+      "sunPosition": [
+        -55,
+        42,
+        55
+      ]
+    },
+    "atmosphere": {
+      "fogDensity": 0.013,
+      "fogColor": "#28150f",
+      "ambientIntensity": 0.5,
+      "sunColor": "#ff934b"
+    },
+    "flags": {
+      "bridge_stabilized": false,
+      "crystal_recovered": false,
+      "trench_vent_sealed": false,
+      "summit_scouted": false
+    }
+  }
+}

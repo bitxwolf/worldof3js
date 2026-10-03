@@ -77,8 +77,9 @@ export class ProceduralAssetLibrary {
   private rng: () => number;
 
   constructor(
-    private readonly scene: THREE.Scene,
+    private readonly scene: THREE.Scene | THREE.Group,
     seed: number = 42,
+    private readonly getElevation?: (x: number, z: number) => number,
   ) {
     this.rng = makePRNG(seed);
   }
@@ -158,7 +159,9 @@ export class ProceduralAssetLibrary {
     this.scene.add(sun);
 
     // Sky background colour
-    this.scene.background = new THREE.Color(cfg.sky);
+    if (this.scene instanceof THREE.Scene) {
+      this.scene.background = new THREE.Color(cfg.sky);
+    }
 
     // Fog
     const fogDens = fogDensity ?? (
@@ -176,7 +179,9 @@ export class ProceduralAssetLibrary {
       weather === 'snow'  ? 0xe2e8f0 :
       cfg.sky;
 
-    this.scene.fog = new THREE.FogExp2(fogColor, fogDens);
+    if (this.scene instanceof THREE.Scene) {
+      this.scene.fog = new THREE.FogExp2(fogColor, fogDens);
+    }
   }
 
   // ── Trees ──────────────────────────────────────────────────────────────────
@@ -189,7 +194,8 @@ export class ProceduralAssetLibrary {
     const s    = scale * (0.70 + r() * 0.60);
     group.scale.setScalar(s);
     group.rotation.y = r() * Math.PI * 2;
-    group.position.set(x, 0, z);
+    const groundY = this.getElevation ? this.getElevation(x, z) : 0;
+    group.position.set(x, groundY, z);
 
     switch (type) {
       case 'pine':     this._buildPine(group, r, colorShift);     break;
@@ -346,7 +352,8 @@ export class ProceduralAssetLibrary {
     geo.computeVertexNormals();
 
     const rock       = new THREE.Mesh(geo, mat);
-    rock.position.set(x, scale * (0.35 + r() * 0.15), z);
+    const groundY = this.getElevation ? this.getElevation(x, z) : 0;
+    rock.position.set(x, groundY + scale * (0.35 + r() * 0.15), z);
     rock.rotation.set(r() * 0.4, r() * Math.PI * 2, r() * 0.3);
     rock.castShadow  = true;
     rock.receiveShadow = true;
@@ -379,7 +386,8 @@ export class ProceduralAssetLibrary {
     } = options;
     const r     = this.rng;
     const group = new THREE.Group();
-    group.position.set(x, 0, z);
+    const groundY = this.getElevation ? this.getElevation(x, z) : 0;
+    group.position.set(x, groundY, z);
 
     const wallMat = new THREE.MeshStandardMaterial({
       color: new THREE.Color(color).lerp(new THREE.Color(0xffffff), r() * 0.1 - 0.05),
@@ -530,7 +538,8 @@ export class ProceduralAssetLibrary {
   // ── Torch / fire light ────────────────────────────────────────────────────
   createTorch(x: number, y: number, z: number): THREE.Group {
     const group  = new THREE.Group();
-    group.position.set(x, y, z);
+    const groundY = this.getElevation ? this.getElevation(x, z) : 0;
+    group.position.set(x, groundY + y, z);
 
     // Pole
     const poleMat = new THREE.MeshStandardMaterial({ color: 0x3a2010 });
@@ -559,7 +568,8 @@ export class ProceduralAssetLibrary {
   // ── Well ──────────────────────────────────────────────────────────────────
   createWell(x: number, z: number): THREE.Group {
     const group   = new THREE.Group();
-    group.position.set(x, 0, z);
+    const groundY = this.getElevation ? this.getElevation(x, z) : 0;
+    group.position.set(x, groundY, z);
     const stoneMat = new THREE.MeshStandardMaterial({ color: 0x7a7065, roughness: 0.95 });
     const woodMat  = new THREE.MeshStandardMaterial({ color: 0x5a3a20, roughness: 0.9 });
 

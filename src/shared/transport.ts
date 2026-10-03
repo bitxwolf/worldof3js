@@ -16,18 +16,180 @@ import { enrichSceneGraph } from './WorldEnricher';
 
 const isElectron = (): boolean => typeof window !== 'undefined' && 'electronAPI' in window;
 
+// Browser fallback in-memory / session storage for secrets.
+// SECURITY: Plaintext API keys must never be persisted permanently to localStorage
+// to prevent credential leakage via XSS or browser storage dumps. In browser mode,
+// keys are held only in memory and sessionStorage (cleared when the session ends).
+let browserSessionApiKey = '';
+
+function getBrowserApiKey(): string {
+  try {
+    if (typeof sessionStorage !== 'undefined') {
+      const sessionKey = sessionStorage.getItem('orbis-api-key') ?? sessionStorage.getItem('story-engine-api-key');
+      if (sessionKey !== null) {
+        return sessionKey;
+      }
+    }
+  } catch {
+    // sessionStorage might be restricted in some environments
+  }
+  return browserSessionApiKey;
+}
+
+function setBrowserApiKey(apiKey: string): void {
+  browserSessionApiKey = apiKey;
+  try {
+    if (typeof sessionStorage !== 'undefined') {
+      if (apiKey) {
+        sessionStorage.setItem('orbis-api-key', apiKey);
+      } else {
+        sessionStorage.removeItem('orbis-api-key');
+        sessionStorage.removeItem('story-engine-api-key');
+      }
+    }
+  } catch {
+    // Ignore storage errors
+  }
+}
+
+let browserSessionOpenaiKey = '';
+let browserSessionAnthropicKey = '';
+
+function getBrowserOpenaiApiKey(): string {
+  try {
+    if (typeof sessionStorage !== 'undefined') {
+      const k = sessionStorage.getItem('orbis-openai-api-key');
+      if (k !== null) return k;
+    }
+  } catch {}
+  return browserSessionOpenaiKey || getBrowserApiKey();
+}
+
+function setBrowserOpenaiApiKey(apiKey: string): void {
+  browserSessionOpenaiKey = apiKey;
+  try {
+    if (typeof sessionStorage !== 'undefined') {
+      if (apiKey) sessionStorage.setItem('orbis-openai-api-key', apiKey);
+      else sessionStorage.removeItem('orbis-openai-api-key');
+    }
+  } catch {}
+}
+
+function getBrowserAnthropicApiKey(): string {
+  try {
+    if (typeof sessionStorage !== 'undefined') {
+      const k = sessionStorage.getItem('orbis-anthropic-api-key');
+      if (k !== null) return k;
+    }
+  } catch {}
+  return browserSessionAnthropicKey;
+}
+
+function setBrowserAnthropicApiKey(apiKey: string): void {
+  browserSessionAnthropicKey = apiKey;
+  try {
+    if (typeof sessionStorage !== 'undefined') {
+      if (apiKey) sessionStorage.setItem('orbis-anthropic-api-key', apiKey);
+      else sessionStorage.removeItem('orbis-anthropic-api-key');
+    }
+  } catch {}
+}
+
 function getBrowserSettings(): AppSettings {
   try {
-    const stored = localStorage.getItem('story-engine-settings');
-    return stored ? JSON.parse(stored) : { apiKey: '', model: 'anthropic/claude-3.5-sonnet', quality: 'fast' };
+    const stored = typeof localStorage !== 'undefined'
+      ? (localStorage.getItem('orbis-settings') ?? localStorage.getItem('story-engine-settings'))
+      : null;
+    const parsed = stored ? JSON.parse(stored) : {};
+
+    // If an older version left a plaintext apiKey in localStorage, migrate and purge it immediately
+    if (parsed.apiKey) {
+      setBrowserApiKey(parsed.apiKey);
+      delete parsed.apiKey;
+      try {
+        localStorage.setItem('orbis-settings', JSON.stringify(parsed));
+        localStorage.removeItem('story-engine-settings');
+      } catch {
+        // Ignore localStorage write error
+      }
+    }
+    if (parsed.openaiApiKey) {
+      setBrowserOpenaiApiKey(parsed.openaiApiKey);
+      delete parsed.openaiApiKey;
+      try {
+        localStorage.setItem('orbis-settings', JSON.stringify(parsed));
+      } catch {}
+    }
+    if (parsed.anthropicApiKey) {
+      setBrowserAnthropicApiKey(parsed.anthropicApiKey);
+      delete parsed.anthropicApiKey;
+      try {
+        localStorage.setItem('orbis-settings', JSON.stringify(parsed));
+      } catch {}
+    }
+
+    const activeProvider = parsed.activeProvider || 'openai';
+    const activeKey = activeProvider === 'anthropic' ? getBrowserAnthropicApiKey() : (getBrowserOpenaiApiKey() || getBrowserApiKey());
+    const activeModel = activeProvider === 'anthropic' ? (parsed.anthropicModel || parsed.model || 'claude-3-5-sonnet') : (parsed.openaiModel || parsed.model || 'anthropic/claude-3.5-sonnet');
+
+    return {
+      ...parsed,
+      apiKey: activeKey,
+      model: activeModel,
+      activeProvider,
+      openaiBaseUrl: parsed.openaiBaseUrl || 'https://openrouter.ai/api/v1',
+      openaiApiKey: getBrowserOpenaiApiKey(),
+      openaiModel: parsed.openaiModel || '',
+      anthropicApiKey: getBrowserAnthropicApiKey(),
+      anthropicModel: parsed.anthropicModel || '',
+      openaiModelList: parsed.openaiModelList || [],
+      anthropicModelList: parsed.anthropicModelList || [],
+      quality: parsed.quality || 'fast',
+    };
   } catch {
-    return { apiKey: '', model: 'anthropic/claude-3.5-sonnet', quality: 'fast' };
+    return {
+      apiKey: getBrowserApiKey(),
+      model: 'anthropic/claude-3.5-sonnet',
+      quality: 'fast',
+      activeProvider: 'openai',
+      openaiBaseUrl: 'https://openrouter.ai/api/v1',
+      openaiApiKey: getBrowserOpenaiApiKey(),
+      openaiModel: '',
+      anthropicApiKey: getBrowserAnthropicApiKey(),
+      anthropicModel: '',
+      openaiModelList: [],
+      anthropicModelList: [],
+    };
   }
 }
 
 function saveBrowserSettings(s: Partial<AppSettings>): void {
+  // Update in-memory / session-only key if provided
+  if (s.apiKey !== undefined) {
+    setBrowserApiKey(s.apiKey);
+  }
+  if (s.openaiApiKey !== undefined) {
+    setBrowserOpenaiApiKey(s.openaiApiKey);
+  }
+  if (s.anthropicApiKey !== undefined) {
+    setBrowserAnthropicApiKey(s.anthropicApiKey);
+  }
+
+  // Persist only non-sensitive configuration to permanent localStorage.
+  // Never persist plaintext API keys to localStorage.
   const current = getBrowserSettings();
-  localStorage.setItem('story-engine-settings', JSON.stringify({ ...current, ...s }));
+  const persistentSettings = { ...current, ...s };
+  delete (persistentSettings as Partial<AppSettings>).apiKey;
+  delete (persistentSettings as Partial<AppSettings>).openaiApiKey;
+  delete (persistentSettings as Partial<AppSettings>).anthropicApiKey;
+
+  try {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem('orbis-settings', JSON.stringify(persistentSettings));
+    }
+  } catch {
+    // Ignore localStorage write error
+  }
 }
 
 async function browserLLMCall(systemPrompt: string, userPrompt: string, maxTokens: number = 4096): Promise<string> {
@@ -39,8 +201,8 @@ async function browserLLMCall(systemPrompt: string, userPrompt: string, maxToken
     headers: {
       'Authorization': `Bearer ${settings.apiKey}`,
       'Content-Type': 'application/json',
-      'HTTP-Referer': 'https://story-engine.app',
-      'X-Title': 'Story Engine',
+      'HTTP-Referer': 'https://orbis.app',
+      'X-Title': 'Orbis',
     },
     body: JSON.stringify({
       model: settings.model || 'anthropic/claude-3.5-sonnet',
@@ -107,6 +269,10 @@ export const transport = {
           const { base64, mimeType } = (payload || {}) as { base64: string; mimeType: string };
           return window.electronAPI.processImage(base64, mimeType) as Promise<IPCResult<T>>;
         }
+        case 'settings:fetch-openai-models':
+          return window.electronAPI.fetchOpenAIModels(payload as { baseUrl: string; apiKey: string }) as Promise<IPCResult<T>>;
+        case 'settings:fetch-anthropic-models':
+          return window.electronAPI.fetchAnthropicModels(payload as { apiKey: string }) as Promise<IPCResult<T>>;
         default:
           return {
             success: false,
@@ -168,6 +334,42 @@ export const transport = {
         case IPC_CHANNELS.FILE_LOAD_WORLD:
         case IPC_CHANNELS.FILE_EXPORT_HTML:
           return { success: false, error: { name: 'BrowserMode', message: 'Use the World Library browser fallback' } };
+        case 'settings:fetch-openai-models': {
+          const { baseUrl, apiKey } = (payload || {}) as { baseUrl: string; apiKey: string };
+          try {
+            const url = `${(baseUrl || 'https://openrouter.ai/api/v1').replace(/\/$/, '')}/models`;
+            const res = await fetch(url, {
+              headers: { Authorization: `Bearer ${apiKey}` },
+            });
+            if (!res.ok) {
+              return { success: false, error: { name: 'FetchError', message: `HTTP ${res.status}: ${res.statusText}` } };
+            }
+            const json = (await res.json()) as { data?: Array<{ id: string }> };
+            const models = (json.data ?? []).map((m) => m.id).sort();
+            return { success: true, data: { models } as unknown as T };
+          } catch (err) {
+            return { success: false, error: { name: 'FetchError', message: err instanceof Error ? err.message : String(err) } };
+          }
+        }
+        case 'settings:fetch-anthropic-models': {
+          const { apiKey } = (payload || {}) as { apiKey: string };
+          try {
+            const res = await fetch('https://api.anthropic.com/v1/models', {
+              headers: {
+                'x-api-key': apiKey,
+                'anthropic-version': '2023-06-01',
+              },
+            });
+            if (!res.ok) {
+              return { success: false, error: { name: 'FetchError', message: `HTTP ${res.status}: ${res.statusText}` } };
+            }
+            const json = (await res.json()) as { data?: Array<{ id: string }> };
+            const models = (json.data ?? []).map((m) => m.id).sort();
+            return { success: true, data: { models } as unknown as T };
+          } catch (err) {
+            return { success: false, error: { name: 'FetchError', message: err instanceof Error ? err.message : String(err) } };
+          }
+        }
         default:
           return { success: false, error: { name: 'UnknownChannel', message: `Unknown IPC channel: ${channel}` } };
       }
@@ -215,4 +417,10 @@ export const transport = {
 
   processImage: (b64: string, mime: string): Promise<IPCResult<ProcessedImage>> =>
     transport.call(IPC_CHANNELS.IMAGE_PROCESS, { base64: b64, mimeType: mime }),
+
+  fetchOpenAIModels: (p: { baseUrl: string; apiKey: string }): Promise<IPCResult<{ models: string[] }>> =>
+    transport.call<{ models: string[] }>('settings:fetch-openai-models', p),
+
+  fetchAnthropicModels: (p: { apiKey: string }): Promise<IPCResult<{ models: string[] }>> =>
+    transport.call<{ models: string[] }>('settings:fetch-anthropic-models', p),
 };

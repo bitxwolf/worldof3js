@@ -3,10 +3,12 @@ import { useUIStore } from '../../store/uiStore';
 import { useWorldStore } from '../../store/worldStore';
 import { useSessionStore } from '../../store/sessionStore';
 import type { SavedWorld } from '../../../shared/ipc.types';
+import type { SceneGraph } from '../../../shared/schema/sceneGraph.schema';
+import { SavedWorldSchema } from '../../../shared/schema/sceneGraph.schema';
 
 export const WorldLibraryModal = () => {
   const { isLibraryOpen, closeLibrary, showNotification } = useUIStore();
-  const { sceneGraph, flags, playerPosition, setSceneGraph, setGeneratedCode } = useWorldStore();
+  const { sceneGraph, generatedCode, flags, playerPosition, setSceneGraph, setGeneratedCode } = useWorldStore();
   const { recordSave } = useSessionStore();
   const [isProcessing, setIsProcessing] = useState(false);
 
@@ -24,6 +26,7 @@ export const WorldLibraryModal = () => {
         name: sceneGraph.world.name,
         timestamp: Date.now(),
         sceneGraph,
+        generatedCode,
         flags,
         playerPosition,
       };
@@ -63,7 +66,7 @@ export const WorldLibraryModal = () => {
         const res = await window.electronAPI.loadWorld();
         if (res.success && res.data?.sceneGraph) {
           setSceneGraph(res.data.sceneGraph);
-          setGeneratedCode(null);
+          setGeneratedCode(res.data.generatedCode ?? null);
           showNotification(`World loaded: ${res.data.name}`, 4000, 'success');
           closeLibrary();
         } else if (!res.success) {
@@ -79,15 +82,16 @@ export const WorldLibraryModal = () => {
           if (!file) return;
           try {
             const text = await file.text();
-            const data = JSON.parse(text) as SavedWorld;
-            if (data.sceneGraph) {
-              setSceneGraph(data.sceneGraph);
-              setGeneratedCode(null);
-              showNotification(`World loaded: ${data.name || file.name}`, 4000, 'success');
-              closeLibrary();
-            } else {
-              showNotification('Invalid world file.', 4000, 'warning');
+            const parsed = JSON.parse(text);
+            const result = SavedWorldSchema.safeParse(parsed);
+            if (!result.success) {
+              showNotification('Invalid world file schema.', 4000, 'warning');
+              return;
             }
+            setSceneGraph(result.data.sceneGraph);
+            setGeneratedCode(result.data.generatedCode ?? null);
+            showNotification(`World loaded: ${result.data.name || file.name}`, 4000, 'success');
+            closeLibrary();
           } catch {
             showNotification('Failed to parse world file.', 4000, 'warning');
           }
@@ -111,7 +115,7 @@ export const WorldLibraryModal = () => {
     try {
       setIsProcessing(true);
       if (window.electronAPI?.exportHtml) {
-        const res = await window.electronAPI.exportHtml(sceneGraph);
+        const res = await window.electronAPI.exportHtml({ ...sceneGraph, code: generatedCode ?? undefined } as unknown as SceneGraph);
         if (res.success) {
           showNotification(`Exported HTML: ${res.data}`, 5000, 'success');
         } else {

@@ -16,7 +16,7 @@ export const EditorPanel = () => {
       <div className="flex items-center justify-between border-b border-gray-800 pb-4">
         <div>
           <h1 className="text-lg font-bold tracking-tight text-white flex items-center gap-2">
-            <span className="text-indigo-500">❖</span> Story Engine
+            <span className="text-indigo-500">❖</span> Orbis
           </h1>
           <p className="text-xs text-gray-400">LLM-Powered 3D World Builder</p>
         </div>
@@ -71,7 +71,7 @@ export const EditorPanel = () => {
 
       {/* Footer Info */}
       <div className="mt-auto pt-4 border-t border-gray-900 text-[11px] text-gray-400 flex items-center justify-between">
-        <span>Story Engine v1.0</span>
+        <span>Orbis v1.0</span>
         <span>Three.js + Claude AI</span>
       </div>
     </div>
