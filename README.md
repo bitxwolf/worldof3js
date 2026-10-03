@@ -8,14 +8,14 @@
   [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
   [![Electron](https://img.shields.io/badge/Electron-28-47848F?logo=electron)](https://electronjs.org)
   [![Three.js](https://img.shields.io/badge/Three.js-r160-black?logo=threedotjs)](https://threejs.org)
-  [![Claude AI](https://img.shields.io/badge/Claude-3.7-orange)](https://anthropic.com)
+  [![Download .exe](https://img.shields.io/github/v/release/bitxwolf/worldof3js?label=download%20.exe&logo=windows&color=2ea44f)](https://github.com/bitxwolf/worldof3js/releases/latest)
 
   <img src="assets/banner.jpg" alt="Orbis — AI-Powered 3D World Creation Studio" width="100%" />
 </div>
 
 ---
 
-Orbis is an open-source desktop application that converts narrative text, images, and story documents into fully interactive, explorable **3D worlds** — powered by [Claude AI](https://anthropic.com) and [Three.js](https://threejs.org).
+Orbis is an open-source desktop application that converts narrative text, images, and story documents into fully interactive, explorable **3D worlds** — powered by modern AI and [Three.js](https://threejs.org).
 
 No coding. No 3D modelling. No game engine expertise required.
 
@@ -100,7 +100,7 @@ Your Story Description
 | Desktop shell | [Electron](https://electronjs.org) + [electron-vite](https://electron-vite.org) |
 | UI | React 18 + TypeScript + Tailwind CSS |
 | 3D engine | [Three.js](https://threejs.org) r160 |
-| AI backend | [Anthropic Claude API](https://anthropic.com) (`claude-3-5-sonnet`) |
+| AI backend | Anthropic or OpenAI-compatible API (any good model) |
 | State | [Zustand](https://github.com/pmndrs/zustand) |
 | Validation | [Zod](https://zod.dev) |
 | Build | [Vite](https://vitejs.dev) |
@@ -108,14 +108,25 @@ Your Story Description
 
 ---
 
-## 🚀 Quick Start
+## 💾 Download Latest Release (Windows .exe)
+
+To run Orbis immediately without setting up a development environment:
+
+[![Download Windows Installer](https://img.shields.io/badge/Download-WorldEngine--Setup--1.0.0.exe-2ea44f?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/bitxwolf/worldof3js/releases/latest)
+
+- 📥 **Direct Installer**: [WorldEngine-Setup-1.0.0.exe](https://github.com/bitxwolf/worldof3js/releases/download/v1/WorldEngine-Setup-1.0.0.exe)
+- 🔗 **Releases Page**: [GitHub Releases v1.0.0](https://github.com/bitxwolf/worldof3js/releases/latest)
+
+---
+
+## 🚀 Quick Start (Development)
 
 ### Prerequisites
 
 - **Node.js** 18+
-- **An Anthropic API key** — get one at [console.anthropic.com](https://console.anthropic.com)
+- **An API key** — Anthropic or any OpenAI-compatible provider (e.g. [OpenRouter](https://openrouter.ai), Anthropic, OpenAI)
 
-### Install & run
+### Install & run from source
 
 ```bash
 git clone https://github.com/bitxwolf/worldof3js.git
@@ -124,15 +135,15 @@ npm install
 npm run dev
 ```
 
-On first launch, go to **Settings** and paste your Anthropic API key. It is stored locally in encrypted `electron-store` — never sent anywhere except directly to Anthropic's API.
+On first launch, click **Settings** to configure your API key. It is stored locally in encrypted `electron-store` and never shared.
 
 ### Build a distributable `.exe`
 
 ```bash
-npm run build
+npm run build:win
 ```
 
-Output is in `dist/`.
+Output is generated in `release/`.
 
 ---
 
@@ -144,8 +155,8 @@ Output is in `dist/`.
 | 1 — LLM Brain | ✅ Done | Text → scene graph → validated JSON |
 | 2 — World Engine | ✅ Done | Scene graph → walkable 3D world |
 | 3 — Characters | ✅ Done | NPCs, AI dialogue, image-to-asset pipeline |
-| 4 — Orbis Engine | 🔄 In Progress | Events, triggers, document parsing, live world updates |
-| 5 — Package & Ship | ⬜ Planned | Windows EXE, export, polish |
+| 4 — Orbis Engine | ✅ Done | Events, triggers, document parsing, live world updates |
+| 5 — Package & Ship | ✅ Done | Windows EXE, export, polish |
 
 ---
 
@@ -195,6 +206,3 @@ Apache 2.0 — see `LICENSE` file.
 | Game designers (pre-production) | Rapid 3D world prototype before committing to Unity/Unreal |
 | Educators | Interactive historical or fictional environments |
 
----
-
-> Built with ❤️ using Claude AI + Three.js
