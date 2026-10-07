@@ -64,7 +64,18 @@ export const EditorPanel = () => {
       <PromptInput uploadedImages={uploadedImages} />
 
       {/* Image Uploader for Multimodal Input */}
-      <ImageUploader onImagesChange={setUploadedImages} />
+      <ImageUploader
+        onImagesChange={(imgs) => {
+          setUploadedImages(imgs);
+          useWorldStore.getState().setUploadedImages(
+            imgs.map((img) => ({
+              base64: img.base64,
+              mimeType: img.mimeType,
+              tag: img.tag || 'character',
+            }))
+          );
+        }}
+      />
 
       {/* Scene Graph JSON viewer */}
       <JSONInspector />

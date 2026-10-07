@@ -82,4 +82,8 @@ export interface ProcessedImage {
   geometryData?: unknown;
   colors?: string[];
   dimensions: { width: number; height: number };
+  contour?: Array<[number, number]>;
+  cleanBase64?: string;
+  alphaBounds?: { minX: number; maxX: number; minY: number; maxY: number };
+  aspectRatio?: number;
 }

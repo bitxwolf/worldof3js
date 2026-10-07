@@ -25,8 +25,8 @@ const App = () => {
           name: graph.world?.name ?? 'Autosave',
           timestamp: Date.now(),
           sceneGraph: graph,
-          flags: {},
-          playerPosition: [0, 0, 0],
+          flags: useWorldStore.getState().flags || {},
+          playerPosition: useWorldStore.getState().playerPosition || [0, 1.7, 0],
         }).catch(() => { /* silent autosave failure */ });
         console.debug('[AutoSave] World saved');
       }
@@ -96,10 +96,10 @@ const App = () => {
           <div className="absolute bottom-16 left-72 z-50 p-2">
             <ImageUploader
               onImagesChange={(images: UploadedImage[]) => {
+                useWorldStore.getState().setUploadedImages(
+                  images.map((img) => ({ base64: img.base64, mimeType: img.mimeType, tag: img.tag || 'character' }))
+                );
                 if (images.length > 0) {
-                  useWorldStore.getState().setUploadedImages(
-                    images.map((img) => ({ base64: img.base64, mimeType: img.mimeType, tag: img.tag || 'scene' }))
-                  );
                   setShowImgUploader(false);
                 }
               }}

@@ -11,7 +11,7 @@ export class SceneManager {
   readonly camera = new THREE.PerspectiveCamera(75, 1, 0.1, 1000);
   readonly clock = new THREE.Clock();
   private renderer!: THREE.WebGLRenderer;
-  private registry = new ResourceRegistry();
+  readonly registry = new ResourceRegistry();
   private rafId = 0;
   private resizeObserver!: ResizeObserver;
   private onFrameCallbacks: Array<(delta: number) => void> = [];
@@ -131,13 +131,17 @@ export class SceneManager {
   // ── Cleanup ─────────────────────────────────────────────────────────────────
   dispose(): void {
     this._disposed = true;
-    cancelAnimationFrame(this.rafId);
+    if (typeof cancelAnimationFrame === 'function') {
+      cancelAnimationFrame(this.rafId);
+    }
     if (this.resizeObserver) {
       this.resizeObserver.disconnect();
     }
     this.onFrameCallbacks = [];
     this.clearScene();
-    this.renderer.dispose();
+    if (this.renderer) {
+      this.renderer.dispose();
+    }
     console.debug('[SceneManager] Fully disposed');
   }
 

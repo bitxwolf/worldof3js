@@ -14,6 +14,11 @@ import { GenerationOverlay } from '../HUD/GenerationOverlay';
 import { DialogueBox } from '../HUD/DialogueBox';
 import { InteractHint } from '../HUD/InteractHint';
 import { ProceduralAssetLibrary } from '../../engine/assets/ProceduralAssetLibrary';
+import { imageToGeometry } from '../../engine/assets/img2threejsAdapter';
+import { presetRegistry } from '../../engine/presets/PresetRegistry';
+import { useInventoryStore } from '../../store/inventoryStore';
+import { EventSystem } from '../../engine/EventSystem';
+import type { SceneGraph } from '../../../shared/schema/sceneGraph.schema';
 
 // Simple deterministic pseudo-random function
 function pseudoRandom(seed: number): number {
@@ -86,6 +91,13 @@ export const ThreeViewport = () => {
   // Crosshair interaction state
   const [crosshairActive, setCrosshairActive] = useState(false);
   const crosshairActiveRef = useRef(false);
+  const hoveredNPCObjRef = useRef<THREE.Object3D | null>(null);
+  const hoveredInteractableRef = useRef<THREE.Object3D | null>(null);
+  const [interactActionText, setInteractActionText] = useState<string | null>(null);
+  const eventSystemRef = useRef<EventSystem | null>(null);
+  const isApplyingPatchRef = useRef<boolean>(false);
+  const interactRaycasterRef = useRef(new THREE.Raycaster());
+  const uploadedImages = useWorldStore((state) => state.uploadedImages);
 
   // Procedural Asset Builders
   const buildOrganicConiferTree = (treeSeed: number, scale = 1.0): THREE.Group => {
@@ -271,50 +283,18 @@ export const ThreeViewport = () => {
     return group;
   };
 
-  const buildNpcCharacter = (): THREE.Group => {
-    const npcGroup = new THREE.Group();
-    npcGroup.name = 'NPC_Eldrin_The_Ranger';
-
-    const bodyGeo = new THREE.ConeGeometry(0.8, 2.2, 8);
-    const bodyMat = new THREE.MeshStandardMaterial({ color: 0x1e3a8a, roughness: 0.7 });
-    const body = new THREE.Mesh(bodyGeo, bodyMat);
-    body.position.y = 1.1;
-    body.castShadow = true;
-    npcGroup.add(body);
-
-    const headGeo = new THREE.SphereGeometry(0.45, 12, 12);
-    const headMat = new THREE.MeshStandardMaterial({ color: 0xfde047, roughness: 0.5 });
-    const head = new THREE.Mesh(headGeo, headMat);
-    head.position.y = 2.45;
-    head.castShadow = true;
-    npcGroup.add(head);
-
-    const hoodGeo = new THREE.ConeGeometry(0.6, 0.75, 8);
-    const hoodMat = new THREE.MeshStandardMaterial({ color: 0x172554, roughness: 0.8 });
-    const hood = new THREE.Mesh(hoodGeo, hoodMat);
-    hood.position.y = 2.65;
-    npcGroup.add(hood);
-
-    const staffGeo = new THREE.CylinderGeometry(0.06, 0.08, 3.2, 6);
-    const staffMat = new THREE.MeshStandardMaterial({ color: 0x78350f });
-    const staff = new THREE.Mesh(staffGeo, staffMat);
-    staff.position.set(0.9, 1.6, 0.4);
-    npcGroup.add(staff);
-
-    const crystalGeo = new THREE.OctahedronGeometry(0.24);
-    const crystalMat = new THREE.MeshBasicMaterial({ color: 0x34d399 });
-    const crystal = new THREE.Mesh(crystalGeo, crystalMat);
-    crystal.position.set(0.9, 3.2, 0.4);
-    npcGroup.add(crystal);
-
-    npcGroup.userData = {
-      type: 'NPCs/HumanoidNPC',
-      name: 'Eldrin the Ranger',
-      roughness: 0.6,
-      metalness: 0.0,
-      seed: 777,
+  const buildNpcCharacter = (biome?: BiomeType): THREE.Group => {
+    const archetypeMap: Record<BiomeType, string> = {
+      cyber: 'npc_cyber_cyborg',
+      ruins: 'npc_arcane_mystic',
+      canyon: 'npc_desert_scavenger',
+      pine: 'npc_forest_guardian',
+      alien: 'npc_steam_alchemist',
     };
-    return npcGroup;
+    const archetypeId = (biome && archetypeMap[biome]) || 'npc_cyber_cyborg';
+    const npcMesh = presetRegistry.spawn(archetypeId);
+    npcMesh.name = `NPC_${archetypeId}`;
+    return npcMesh;
   };
 
   const disposeHierarchy = (obj: THREE.Object3D) => {
@@ -322,12 +302,20 @@ export const ThreeViewport = () => {
       (obj as THREE.Mesh).geometry.dispose();
     }
     if ((obj as THREE.Mesh).material) {
-      const mat = (obj as THREE.Mesh).material;
-      if (Array.isArray(mat)) {
-        mat.forEach((m) => m.dispose());
-      } else {
-        mat.dispose();
-      }
+      const mats = Array.isArray((obj as THREE.Mesh).material)
+        ? ((obj as THREE.Mesh).material as THREE.Material[])
+        : [(obj as THREE.Mesh).material as THREE.Material];
+      mats.forEach((m) => {
+        if (!m) return;
+        m.dispose();
+        const textureKeys = ['map', 'normalMap', 'roughnessMap', 'metalnessMap', 'aoMap', 'emissiveMap', 'alphaMap'];
+        for (const key of textureKeys) {
+          const tex = (m as unknown as Record<string, unknown>)[key];
+          if (tex && typeof tex === 'object' && 'isTexture' in tex && (tex as { isTexture: boolean }).isTexture) {
+            (tex as THREE.Texture).dispose();
+          }
+        }
+      });
     }
     while (obj.children.length > 0) {
       const child = obj.children[0];
@@ -544,8 +532,12 @@ export const ThreeViewport = () => {
 
         let entity: THREE.Object3D | null = null;
         if (biome === 'pine') {
-          if (pseudoRandom(itemSeed + 2) > 0.3) {
-            entity = buildOrganicConiferTree(itemSeed, 0.7 + pseudoRandom(itemSeed + 3) * 0.7);
+          if (pseudoRandom(itemSeed + 2) > 0.6) {
+            entity = presetRegistry.spawn('tree_layered_canopy', { scale: 0.7 + pseudoRandom(itemSeed + 3) * 0.6 });
+          } else if (pseudoRandom(itemSeed + 2) > 0.35) {
+            entity = buildOrganicConiferTree(itemSeed, 0.8 + pseudoRandom(itemSeed + 3) * 0.5);
+          } else if (pseudoRandom(itemSeed + 2) > 0.2) {
+            entity = presetRegistry.spawn('grass_tuft_dense', { scale: 0.8 + pseudoRandom(itemSeed + 3) * 0.5 });
           } else {
             entity = buildProceduralRock(itemSeed, 0.8 + pseudoRandom(itemSeed + 3) * 0.9);
           }
@@ -554,7 +546,11 @@ export const ThreeViewport = () => {
         } else if (biome === 'alien') {
           entity = buildAlienMushroom(itemSeed, 0.8 + pseudoRandom(itemSeed + 3) * 0.7);
         } else if (biome === 'ruins') {
-          entity = buildAncientRuinPillar(itemSeed, 0.7 + pseudoRandom(itemSeed + 3) * 0.8);
+          if (pseudoRandom(itemSeed + 2) > 0.5) {
+            entity = presetRegistry.spawn('prop_rune_obelisk', { scale: 0.75 + pseudoRandom(itemSeed + 3) * 0.6 });
+          } else {
+            entity = buildAncientRuinPillar(itemSeed, 0.7 + pseudoRandom(itemSeed + 3) * 0.8);
+          }
         } else if (biome === 'canyon') {
           entity = buildProceduralRock(itemSeed, 1.2 + pseudoRandom(itemSeed + 3) * 1.5);
         }
@@ -566,8 +562,8 @@ export const ThreeViewport = () => {
         }
       }
 
-      // 5. Spawn In-scene NPC character
-      const npcMesh = buildNpcCharacter();
+      // 5. Spawn In-scene NPC character from high-detail 3D preset registry
+      const npcMesh = buildNpcCharacter(biome);
       const npcX = 3;
       const npcZ = 5;
       const npcY = getElevation(npcX, npcZ, seed, tuningParams.elevation);
@@ -872,30 +868,56 @@ export const ThreeViewport = () => {
         const groundH = getElevation(camera.position.x, camera.position.z, currentSeed, elev);
         camera.position.y = THREE.MathUtils.lerp(camera.position.y, groundH + 2.4, 0.2);
 
-        // NPC proximity detection for InteractHint
-        if (npcCharacterRef.current) {
-          const dist = camera.position.distanceTo(npcCharacterRef.current.position);
-          const name = dist <= 4 ? (npcCharacterRef.current.userData?.name || 'NPC') : null;
-          if (name !== nearbyNPCNameRef.current) {
-            nearbyNPCNameRef.current = name;
-            setNearbyNPCName(name);
-          }
-        }
       } else {
         controls.update();
       }
 
-      // NPC idle bob
-      if (npcCharacterRef.current) {
-        const currentSeed = useUIStore.getState().seed;
-        const elev = useUIStore.getState().tuningParams.elevation;
-        const groundY = getElevation(
-          npcCharacterRef.current.position.x,
-          npcCharacterRef.current.position.z,
-          currentSeed,
-          elev
-        );
-        npcCharacterRef.current.position.y = groundY + Math.sin(time * 2.0) * 0.08;
+      // ── Process all active NPCs in scene: idle bob, smooth lookAt, and HUD proximity ──
+      const currentSeed = useUIStore.getState().seed;
+      const elev = useUIStore.getState().tuningParams.elevation;
+      const allNPCs: THREE.Object3D[] = [];
+      scene.traverse((obj) => {
+        if (
+          obj instanceof THREE.Group &&
+          (obj.userData?.type === 'npc' || obj.userData?.isNPC === true || obj.name?.toLowerCase().includes('npc'))
+        ) {
+          allNPCs.push(obj);
+        }
+      });
+      if (npcCharacterRef.current && !allNPCs.includes(npcCharacterRef.current)) {
+        allNPCs.push(npcCharacterRef.current);
+      }
+
+      let closestNPCName: string | null = null;
+      let minNpcDist = 4.0;
+      const dummyObj = new THREE.Object3D();
+      const tempPos = new THREE.Vector3();
+
+      for (const npc of allNPCs) {
+        npc.getWorldPosition(tempPos);
+
+        // Ground snapping + subtle idle hovering bob
+        const groundY = getElevation(npc.position.x, npc.position.z, currentSeed, elev);
+        npc.position.y = groundY + Math.sin(time * 2.0) * 0.08;
+
+        const dist = camera.position.distanceTo(tempPos);
+        if (dist <= minNpcDist) {
+          minNpcDist = dist;
+          closestNPCName = npc.userData?.name || 'NPC';
+        }
+
+        // Smooth look-at player when within 10 units
+        if (dist > 0.01 && dist < 10) {
+          scratchVec3Ref.current.set(camera.position.x, npc.position.y, camera.position.z);
+          dummyObj.position.copy(npc.position);
+          dummyObj.lookAt(scratchVec3Ref.current);
+          npc.quaternion.slerp(dummyObj.quaternion, 0.08);
+        }
+      }
+
+      if (closestNPCName !== nearbyNPCNameRef.current) {
+        nearbyNPCNameRef.current = closestNPCName;
+        setNearbyNPCName(closestNPCName);
       }
 
       const hudCoordsEl = document.getElementById('hudCoords');
@@ -903,19 +925,153 @@ export const ThreeViewport = () => {
         hudCoordsEl.textContent = `CAM: X: ${camera.position.x.toFixed(1)} Y: ${camera.position.y.toFixed(1)} Z: ${camera.position.z.toFixed(1)}`;
       }
 
-      // F5: Crosshair interactable detection
+      // Sync live player position to worldStore so save & autosave record exact location
+      if (cameraMode === 'walk' || pointerLockRef.current?.isLocked) {
+        useWorldStore.getState().setPlayerPosition([
+          Number(camera.position.x.toFixed(2)),
+          Number(camera.position.y.toFixed(2)),
+          Number(camera.position.z.toFixed(2)),
+        ]);
+      }
+
+      // ── EventSystem Tick (proximity, time, flag triggers) ──
+      if (eventSystemRef.current) {
+        eventSystemRef.current.tick(delta, camera.position, scene);
+      }
+
+      // F5: Crosshair interactable detection & hover highlight (NPCs, Doors, Items, Props)
       if (pointerLockRef.current?.isLocked) {
-        const raycaster = new THREE.Raycaster();
+        const raycaster = interactRaycasterRef.current;
         raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
         const hits = raycaster.intersectObjects(scene.children, true);
-        const isInteractable = hits.some(h =>
+        const hitNPC = hits.find((h) =>
           h.object.userData?.interactable === true ||
           h.object.userData?.type === 'npc' ||
-          h.object.userData?.isNPC === true
+          h.object.userData?.isNPC === true ||
+          h.object.name?.toLowerCase().includes('npc')
         );
+
+        let hitInteractable: THREE.Object3D | null = null;
+        let detectedActionText: string | null = null;
+
+        for (const h of hits) {
+          if (h.distance > 4.5) continue;
+          let obj: THREE.Object3D | null = h.object;
+          while (obj && obj !== scene) {
+            const uData = obj.userData || {};
+            const nameLower = (obj.name || '').toLowerCase();
+            const typeLower = (uData.type || '').toLowerCase();
+            const idLower = (uData.id || '').toLowerCase();
+
+            // Pickable item
+            if (uData.pickable === true || typeLower === 'item' || nameLower.includes('item') || typeLower.includes('key')) {
+              hitInteractable = obj;
+              detectedActionText = `Pick up ${uData.name || obj.name || 'item'}`;
+              break;
+            }
+            // Door / gate
+            if (
+              uData.locked !== undefined ||
+              typeLower.includes('door') ||
+              nameLower.includes('door') ||
+              idLower.includes('door') ||
+              typeLower.includes('gate') ||
+              nameLower.includes('gate')
+            ) {
+              hitInteractable = obj;
+              detectedActionText = uData.locked !== false ? 'Open door' : 'Examine door';
+              break;
+            }
+            // Generic interactable or structure
+            if (uData.interactable === true || (uData.id && sceneGraph?.events?.some((ev) => ev.target === uData.id))) {
+              hitInteractable = obj;
+              detectedActionText = `Interact with ${uData.name || obj.name || 'object'}`;
+              break;
+            }
+            obj = obj.parent;
+          }
+          if (hitInteractable) break;
+        }
+
+        // Proximity fallback within 3.5m radius
+        if (!hitInteractable && !hitNPC) {
+          const INTERACT_RADIUS = 3.5;
+          const pPos = camera.position;
+          const tempP = new THREE.Vector3();
+
+          scene.traverse((obj) => {
+            if (hitInteractable) return;
+            const uData = obj.userData || {};
+            const nameLower = (obj.name || '').toLowerCase();
+            const typeLower = (uData.type || '').toLowerCase();
+            const idLower = (uData.id || '').toLowerCase();
+
+            if (
+              uData.locked !== undefined ||
+              uData.pickable === true ||
+              typeLower.includes('door') ||
+              nameLower.includes('door') ||
+              idLower.includes('door') ||
+              typeLower === 'item' ||
+              nameLower.includes('item') ||
+              uData.interactable === true
+            ) {
+              obj.getWorldPosition(tempP);
+              if (tempP.distanceTo(pPos) <= INTERACT_RADIUS) {
+                hitInteractable = obj;
+                if (uData.pickable === true || typeLower === 'item' || nameLower.includes('item')) {
+                  detectedActionText = `Pick up ${uData.name || obj.name || 'item'}`;
+                } else if (uData.locked !== undefined || typeLower.includes('door') || nameLower.includes('door') || idLower.includes('door')) {
+                  detectedActionText = uData.locked !== false ? 'Open door' : 'Examine door';
+                } else {
+                  detectedActionText = `Interact with ${uData.name || obj.name || 'object'}`;
+                }
+              }
+            }
+          });
+        }
+
+        hoveredInteractableRef.current = hitInteractable;
+        setInteractActionText(detectedActionText);
+
+        const isInteractable = Boolean(hitNPC || hitInteractable);
         if (isInteractable !== crosshairActiveRef.current) {
           crosshairActiveRef.current = isInteractable;
           setCrosshairActive(isInteractable);
+        }
+
+        const currentHovered = hitNPC ? hitNPC.object : null;
+        if (currentHovered !== hoveredNPCObjRef.current) {
+          // Restore unhovered object material
+          if (hoveredNPCObjRef.current instanceof THREE.Mesh) {
+            const prevMats = Array.isArray(hoveredNPCObjRef.current.material)
+              ? hoveredNPCObjRef.current.material
+              : [hoveredNPCObjRef.current.material];
+            prevMats.forEach((m) => {
+              if (m && 'emissive' in m && (m as unknown as { _origEmissive?: THREE.Color })._origEmissive) {
+                (m as THREE.MeshStandardMaterial).emissive.copy((m as unknown as { _origEmissive: THREE.Color })._origEmissive);
+                (m as THREE.MeshStandardMaterial).emissiveIntensity = (m as unknown as { _origEmissiveIntensity?: number })._origEmissiveIntensity ?? 0;
+              }
+            });
+          }
+          hoveredNPCObjRef.current = currentHovered;
+          // Apply subtle rim/emissive highlight to hovered NPC mesh
+          if (currentHovered instanceof THREE.Mesh) {
+            const mats = Array.isArray(currentHovered.material)
+              ? currentHovered.material
+              : [currentHovered.material];
+            mats.forEach((m) => {
+              if (m && 'emissive' in m) {
+                const stdMat = m as THREE.MeshStandardMaterial;
+                if (!(stdMat as unknown as { _origEmissive?: THREE.Color })._origEmissive) {
+                  (stdMat as unknown as { _origEmissive: THREE.Color })._origEmissive = stdMat.emissive.clone();
+                  (stdMat as unknown as { _origEmissiveIntensity: number })._origEmissiveIntensity = stdMat.emissiveIntensity;
+                }
+                stdMat.emissive.setHex(0x34d399); // Subtle emerald highlight
+                stdMat.emissiveIntensity = 0.35;
+              }
+            });
+          }
         }
       }
 
@@ -1002,9 +1158,149 @@ export const ThreeViewport = () => {
         window.dispatchEvent(new CustomEvent('engine:smart-edit-done', { detail: { success: false, error: String(err) } }));
       }
     };
+
+    // Live partial world patch from UpdatePromptBar (Task 4.4)
+    const handleApplyWorldPatch = (e: Event) => {
+      const { partial } = (e as CustomEvent<{ partial: Partial<SceneGraph> }>).detail || {};
+      const scene = sceneRef.current;
+      const group = sceneGraphGroupRef.current;
+      if (!partial || !scene || !group) return;
+
+      isApplyingPatchRef.current = true;
+
+      // 1. Add / patch objects in partial without wiping the scene
+      if (partial.objects && partial.objects.length > 0) {
+        for (const obj of partial.objects) {
+          // Remove existing object with matching id if already present
+          let existing: THREE.Object3D | null = null;
+          group.traverse((c) => {
+            if (!existing && (c.userData?.id === obj.id || c.name === obj.id)) existing = c;
+          });
+          if (existing) {
+            group.remove(existing);
+            disposeHierarchy(existing);
+          }
+
+          const typeLower = (obj.type || '').toLowerCase();
+          const nameLower = (obj.name || '').toLowerCase();
+          let mesh: THREE.Object3D;
+
+          if (
+            typeLower.includes('bonfire') ||
+            nameLower.includes('bonfire') ||
+            typeLower.includes('campfire') ||
+            typeLower.includes('fire')
+          ) {
+            const fireGroup = new THREE.Group();
+            fireGroup.name = obj.name || 'Bonfire';
+
+            // Logs
+            const logMat = new THREE.MeshStandardMaterial({ color: 0x4a2e18, roughness: 0.9 });
+            for (let i = 0; i < 4; i++) {
+              const logMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.15, 1.4, 6), logMat);
+              logMesh.rotation.z = Math.PI / 2;
+              logMesh.rotation.y = (i * Math.PI) / 4;
+              logMesh.position.y = 0.15;
+              fireGroup.add(logMesh);
+            }
+
+            // Glowing flames
+            const flameMat = new THREE.MeshBasicMaterial({ color: 0xff5500 });
+            const flameMesh = new THREE.Mesh(new THREE.ConeGeometry(0.5, 1.1, 7), flameMat);
+            flameMesh.position.y = 0.6;
+            fireGroup.add(flameMesh);
+
+            // Flickering light
+            const fireLight = new THREE.PointLight(0xff7722, 2.5, 15);
+            fireLight.position.y = 1.0;
+            fireGroup.add(fireLight);
+
+            mesh = fireGroup;
+          } else {
+            let geo: THREE.BufferGeometry;
+            let color = 0x8b5cf6;
+            if (
+              typeLower.includes('structure') ||
+              typeLower.includes('building') ||
+              typeLower.includes('tower') ||
+              typeLower.includes('hut')
+            ) {
+              geo = new THREE.BoxGeometry(3, 4, 3);
+              color = 0x64748b;
+            } else if (typeLower.includes('foliage') || typeLower.includes('tree')) {
+              geo = new THREE.ConeGeometry(1.2, 3.5, 6);
+              color = 0x15803d;
+            } else if (typeLower.includes('item') || typeLower.includes('key') || typeLower.includes('gem')) {
+              geo = new THREE.DodecahedronGeometry(0.4);
+              color = 0xf59e0b;
+            } else {
+              geo = new THREE.BoxGeometry(1.5, 1.5, 1.5);
+              color = 0xa855f7;
+            }
+            mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color, roughness: 0.7 }));
+          }
+
+          if (obj.position && obj.position.length >= 3) {
+            mesh.position.set(obj.position[0], obj.position[1], obj.position[2]);
+          }
+          mesh.castShadow = true;
+          mesh.receiveShadow = true;
+          mesh.userData = {
+            id: obj.id,
+            name: obj.name,
+            type: obj.type,
+            collidable: obj.collidable ?? true,
+            interactable: obj.interactable ?? true,
+            pickable: obj.pickable ?? (obj.type === 'item'),
+            locked: obj.locked ?? false,
+          };
+          group.add(mesh);
+        }
+      }
+
+      // 2. Add / patch characters
+      if (partial.characters && partial.characters.length > 0) {
+        for (const char of partial.characters) {
+          let existing: THREE.Object3D | null = null;
+          group.traverse((c) => {
+            if (!existing && (c.userData?.id === char.id || c.name === char.name)) existing = c;
+          });
+          if (existing) {
+            group.remove(existing);
+            disposeHierarchy(existing);
+          }
+          const npcMesh = buildNpcCharacter();
+          npcMesh.name = `NPC_${char.name.replace(/\s+/g, '_')}`;
+          npcMesh.userData = { ...npcMesh.userData, id: char.id, name: char.name };
+          npcMesh.position.set(char.position[0], char.position[1] || 0, char.position[2]);
+          group.add(npcMesh);
+        }
+      }
+
+      // 3. Register any new events
+      if (partial.events && partial.events.length > 0 && eventSystemRef.current) {
+        eventSystemRef.current.appendEvents(partial.events);
+      }
+
+      // 4. Update atmosphere
+      if (partial.atmosphere && scene.fog instanceof THREE.FogExp2) {
+        if (partial.atmosphere.fogColor) scene.fog.color.set(partial.atmosphere.fogColor);
+        if (partial.atmosphere.fogDensity !== undefined) scene.fog.density = partial.atmosphere.fogDensity;
+      }
+      if (partial.skybox && partial.skybox.topColor) {
+        scene.background = new THREE.Color(partial.skybox.topColor);
+      }
+
+      syncSceneHierarchy(scene);
+    };
+
     window.addEventListener('engine:smart-edit', handleSmartEdit);
-    return () => window.removeEventListener('engine:smart-edit', handleSmartEdit);
-  }, []);
+    window.addEventListener('engine:apply-world-patch', handleApplyWorldPatch);
+    return () => {
+      window.removeEventListener('engine:smart-edit', handleSmartEdit);
+      window.removeEventListener('engine:apply-world-patch', handleApplyWorldPatch);
+    };
+  }, [syncSceneHierarchy]);
 
   // Sync Biome and Seed changes
   useEffect(() => {
@@ -1014,11 +1310,37 @@ export const ThreeViewport = () => {
 
   // Sync if sceneGraph is updated and build world
   useEffect(() => {
+    // If a live patch is being applied, skip full scene rebuild
+    if (isApplyingPatchRef.current) {
+      isApplyingPatchRef.current = false;
+      return;
+    }
+
     // Note: sceneGraph.world.biome is used for atmosphere/lighting context only,
     // NOT to trigger the preset world builder (that would overwrite the generated world).
     const scene = sceneRef.current;
     const group = sceneGraphGroupRef.current;
     if (scene && group && sceneGraph) {
+      // 0. Setup / update EventSystem for the active world
+      if (!eventSystemRef.current) {
+        eventSystemRef.current = new EventSystem({
+          onTeleport: (pos) => {
+            if (cameraRef.current) cameraRef.current.position.set(pos[0], pos[1], pos[2]);
+          },
+        });
+      }
+      if (sceneGraph.events && sceneGraph.events.length > 0) {
+        eventSystemRef.current.registerAll(sceneGraph.events);
+      }
+
+      // Restore player position if specified in graph or saved world
+      if (cameraRef.current && sceneGraph.player) {
+        const startPos = sceneGraph.player.spawn || sceneGraph.player.startPosition;
+        if (startPos) {
+          cameraRef.current.position.set(startPos[0], startPos[1] || 2.4, startPos[2]);
+        }
+      }
+
       // Clear existing procedural scatter
       while (group.children.length > 0) {
         const obj = group.children[0];
@@ -1072,19 +1394,72 @@ export const ThreeViewport = () => {
           mesh.position.set(...obj.position);
           mesh.castShadow = true;
           mesh.receiveShadow = true;
-          mesh.userData = { id: obj.id, name: obj.name, type: obj.type };
+
+          const isItem = obj.type === 'item' || obj.id?.includes('item') || obj.name?.toLowerCase().includes('item');
+          const isDoor =
+            obj.type === 'door' ||
+            obj.id?.includes('door') ||
+            obj.name?.toLowerCase().includes('door') ||
+            obj.locked !== undefined;
+
+          const currentFlags = useWorldStore.getState().flags || {};
+          const isAlreadyUnlocked = Boolean(
+            currentFlags[`${obj.id}_unlocked`] ||
+            (isDoor && currentFlags.door_unlocked)
+          );
+
+          mesh.userData = {
+            id: obj.id,
+            name: obj.name,
+            type: obj.type,
+            collidable: isAlreadyUnlocked ? false : (obj.collidable ?? !isItem),
+            interactable: obj.interactable ?? (isDoor || isItem),
+            pickable: obj.pickable ?? isItem,
+            locked: isAlreadyUnlocked ? false : (obj.locked ?? (isDoor ? true : false)),
+            description: obj.description || '',
+          };
+          if (isAlreadyUnlocked && isDoor) {
+            mesh.rotation.y += Math.PI / 2;
+          }
           group.add(mesh);
         }
       }
 
       // Spawn NPC characters from scene graph
       if (sceneGraph.characters) {
-        for (const char of sceneGraph.characters) {
-          const npcMesh = buildNpcCharacter();
-          npcMesh.name = `NPC_${char.name.replace(/\s+/g, '_')}`;
-          npcMesh.userData = { ...npcMesh.userData, id: char.id, name: char.name };
-          npcMesh.position.set(...char.position);
-          group.add(npcMesh);
+        const charImages = uploadedImages.filter((img) => (img.tag || '').toLowerCase() === 'character');
+        for (let i = 0; i < sceneGraph.characters.length; i++) {
+          const char = sceneGraph.characters[i];
+          const charPortrait =
+            char.image ||
+            (char.assetUrl && char.assetUrl.startsWith('data:image') ? char.assetUrl : null) ||
+            (charImages[i] || charImages[0])?.base64;
+
+          if (charPortrait) {
+            imageToGeometry(charPortrait, {
+              id: char.id,
+              name: char.name,
+            })
+              .then((avatar) => {
+                avatar.position.set(char.position[0], 0, char.position[2]);
+                group.add(avatar);
+                if (sceneRef.current) syncSceneHierarchy(sceneRef.current);
+              })
+              .catch((err) => {
+                console.warn(`[ThreeViewport] Failed to generate avatar for ${char.name}:`, err);
+                const npcMesh = buildNpcCharacter();
+                npcMesh.name = `NPC_${char.name.replace(/\s+/g, '_')}`;
+                npcMesh.userData = { ...npcMesh.userData, id: char.id, name: char.name };
+                npcMesh.position.set(char.position[0], 0, char.position[2]);
+                group.add(npcMesh);
+              });
+          } else {
+            const npcMesh = buildNpcCharacter();
+            npcMesh.name = `NPC_${char.name.replace(/\s+/g, '_')}`;
+            npcMesh.userData = { ...npcMesh.userData, id: char.id, name: char.name };
+            npcMesh.position.set(char.position[0], 0, char.position[2]);
+            group.add(npcMesh);
+          }
         }
       }
 
@@ -1092,7 +1467,53 @@ export const ThreeViewport = () => {
       if (hudNpcEl) hudNpcEl.textContent = `${sceneGraph.characters?.length ?? 0} characters`;
       if (sceneRef.current) syncSceneHierarchy(sceneRef.current);
     }
-  }, [sceneGraph, generatedCode, syncSceneHierarchy]);
+  }, [sceneGraph, generatedCode, syncSceneHierarchy, uploadedImages]);
+
+  // Spawn 3D extruded avatar whenever a character portrait is uploaded in ImageUploader
+  useEffect(() => {
+    const charImage = uploadedImages.find((img) => (img.tag || '').toLowerCase() === 'character');
+    if (!charImage) return;
+
+    let cancelled = false;
+    imageToGeometry(charImage.base64, {
+      name: 'Custom Character',
+    })
+      .then((customAvatar) => {
+        if (cancelled) return;
+        const scene = sceneRef.current;
+        if (!scene) return;
+
+        if (npcCharacterRef.current) {
+          const prevPos = npcCharacterRef.current.position.clone();
+          const parent = npcCharacterRef.current.parent || scene;
+          parent.remove(npcCharacterRef.current);
+          disposeHierarchy(npcCharacterRef.current);
+
+          customAvatar.position.copy(prevPos);
+          parent.add(customAvatar);
+          npcCharacterRef.current = customAvatar;
+        } else {
+          const cam = cameraRef.current;
+          const spawnX = cam ? cam.position.x : 3;
+          const spawnZ = cam ? cam.position.z - 4 : 5;
+          const currentSeed = useUIStore.getState().seed;
+          const elev = useUIStore.getState().tuningParams.elevation;
+          const spawnY = getElevation(spawnX, spawnZ, currentSeed, elev);
+          customAvatar.position.set(spawnX, spawnY, spawnZ);
+          scene.add(customAvatar);
+          npcCharacterRef.current = customAvatar;
+        }
+        syncSceneHierarchy(scene);
+        useUIStore.getState().addIpcLog('[img2threejs] 3D extruded avatar spawned from portrait.', 'success');
+      })
+      .catch((err) => {
+        console.warn('[ThreeViewport] Failed to build avatar from uploaded image:', err);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [uploadedImages, syncSceneHierarchy]);
 
   // Sync Wireframe toggle
   useEffect(() => {
@@ -1448,23 +1869,119 @@ export const ThreeViewport = () => {
           const scene = sceneRef.current;
           if (!cam || !scene) break;
 
-          const INTERACT_RADIUS = 4;
+          const INTERACT_RADIUS = 4.5;
           const playerPos = cam.position;
-          let nearestNPC: { object: THREE.Object3D; distance: number } | null = null;
 
-          scene.traverse((obj) => {
-            const uType = (obj.userData?.type || '').toLowerCase();
-            if (!uType.includes('npc') && !obj.userData?.isNPC && !obj.name?.toLowerCase().includes('npc')) return;
-            const dist = obj.position.distanceTo(playerPos);
-            if (dist <= INTERACT_RADIUS) {
-              if (!nearestNPC || dist < nearestNPC.distance) {
-                nearestNPC = { object: obj, distance: dist };
+          // 1. Check if an item, door, or interactable object is targeted
+          const interactTarget = hoveredInteractableRef.current;
+          if (interactTarget) {
+            const uData = interactTarget.userData || {};
+            const typeLower = (uData.type || '').toLowerCase();
+            const nameLower = (interactTarget.name || '').toLowerCase();
+            const targetId = uData.id || interactTarget.name;
+
+            // 1A. Pick up item
+            if (
+              uData.pickable === true ||
+              typeLower === 'item' ||
+              nameLower.includes('item') ||
+              typeLower.includes('key')
+            ) {
+              const itemData = {
+                id: targetId || `item_${Date.now()}`,
+                name: uData.name || interactTarget.name || 'Mystery Item',
+                description: uData.description || 'An item discovered in the world.',
+                icon:
+                  uData.icon ||
+                  (typeLower.includes('key') ? '🗝️' : typeLower.includes('gem') ? '💎' : '📦'),
+              };
+              const added = useInventoryStore.getState().addItem(itemData);
+              if (added) {
+                useUIStore.getState().showNotification(`Acquired: ${itemData.name}`, 3500, 'success');
+                // Trigger any interaction event associated with picking up
+                eventSystemRef.current?.handleInteraction(itemData.id, undefined, scene);
+                // Remove mesh from scene
+                const parent = interactTarget.parent || scene;
+                parent.remove(interactTarget);
+                disposeHierarchy(interactTarget);
+                hoveredInteractableRef.current = null;
+                setInteractActionText(null);
+                syncSceneHierarchy(scene);
               }
+              break;
             }
-          });
 
-          const targetNPC = nearestNPC as { object: THREE.Object3D; distance: number } | null;
-          if (!targetNPC) break;
+            // 1B. Door or unlockable object
+            const isDoor =
+              uData.locked !== undefined ||
+              typeLower.includes('door') ||
+              nameLower.includes('door') ||
+              typeLower.includes('gate');
+            const selectedItem = useInventoryStore.getState().getSelectedItem();
+
+            // Check if EventSystem handles it (e.g. item_use, interaction)
+            const eventHandled = eventSystemRef.current?.handleInteraction(
+              targetId,
+              selectedItem?.id,
+              scene
+            );
+
+            if (eventHandled) {
+              setInteractActionText(null);
+              break;
+            }
+
+            if (isDoor) {
+              if (uData.locked === true) {
+                useUIStore.getState().showNotification('The door is locked tight.', 2500, 'info');
+              } else if (uData.locked === false) {
+                useUIStore.getState().showNotification('The door stands open.', 2500, 'info');
+              } else {
+                interactTarget.userData.locked = false;
+                interactTarget.userData.collidable = false;
+                interactTarget.rotation.y += Math.PI / 2; // Door swings open
+                useWorldStore.getState().setFlag('door_unlocked', true);
+                if (targetId) {
+                  useWorldStore.getState().setFlag(`${targetId}_unlocked`, true);
+                }
+                useUIStore.getState().showNotification('The door creaks open', 3500, 'success');
+                setInteractActionText('Examine door');
+              }
+              break;
+            }
+
+            if (eventHandled) {
+              break;
+            }
+          }
+
+          // 2. Otherwise find nearest NPC within interaction radius
+          let targetObject: THREE.Object3D | null = null;
+          if (hoveredNPCObjRef.current) {
+            const hPos = new THREE.Vector3();
+            hoveredNPCObjRef.current.getWorldPosition(hPos);
+            if (hPos.distanceTo(playerPos) <= INTERACT_RADIUS) {
+              targetObject = hoveredNPCObjRef.current;
+            }
+          }
+
+          if (!targetObject) {
+            let minDistance = INTERACT_RADIUS;
+            const tempPos = new THREE.Vector3();
+            scene.traverse((obj) => {
+              const uType = (obj.userData?.type || '').toLowerCase();
+              if (!uType.includes('npc') && !obj.userData?.isNPC && !obj.name?.toLowerCase().includes('npc')) return;
+              obj.getWorldPosition(tempPos);
+              const dist = tempPos.distanceTo(playerPos);
+              if (dist <= minDistance) {
+                minDistance = dist;
+                targetObject = obj;
+              }
+            });
+          }
+
+          if (!targetObject) break;
+          const targetNPC = { object: targetObject };
 
           const npcData = targetNPC.object.userData;
           const character = useWorldStore.getState().sceneGraph?.characters?.find(
@@ -1598,9 +2115,9 @@ export const ThreeViewport = () => {
         </div>
       )}
 
-      {/* NPC Interaction HUD */}
-      {cameraMode === 'walk' && nearbyNPCName && !dialogueOpen && (
-        <InteractHint npcName={nearbyNPCName} />
+      {/* Interaction HUD for NPCs, Doors, Items, Props */}
+      {cameraMode === 'walk' && (nearbyNPCName || interactActionText) && !dialogueOpen && (
+        <InteractHint npcName={nearbyNPCName} actionText={interactActionText} />
       )}
 
       {/* NPC Dialogue Box */}

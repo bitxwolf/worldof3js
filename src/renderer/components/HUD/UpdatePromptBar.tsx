@@ -16,13 +16,14 @@ export const UpdatePromptBar = ({
   const [isExpanded, setIsExpanded] = useState(false);
 
   const { sceneGraph, patchSceneGraph } = useWorldStore();
-  const { showNotification } = useUIStore();
+  const { showNotification, setIsUpdatingWorld } = useUIStore();
 
   const handleUpdate = useCallback(async () => {
     if (!prompt.trim() || !sceneGraph || isUpdating) return;
 
     try {
       setIsUpdating(true);
+      setIsUpdatingWorld(true);
       showNotification('Synthesizing world modifications...', 3000, 'info');
 
       const res = await transport.call<Partial<SceneGraph>>(IPC_CHANNELS.LLM_UPDATE_WORLD, {
@@ -35,6 +36,11 @@ export const UpdatePromptBar = ({
       }
 
       const partial = res.data;
+      // Dispatch live patch event so Three.js scene adds/modifies entities without full reload
+      window.dispatchEvent(
+        new CustomEvent('engine:apply-world-patch', { detail: { partial } })
+      );
+
       patchSceneGraph(partial);
       if (onApplyPatch) {
         onApplyPatch(partial);
@@ -48,8 +54,9 @@ export const UpdatePromptBar = ({
       showNotification(`Update failed: ${msg}`, 5000, 'warning');
     } finally {
       setIsUpdating(false);
+      setIsUpdatingWorld(false);
     }
-  }, [prompt, sceneGraph, isUpdating, patchSceneGraph, onApplyPatch, showNotification]);
+  }, [prompt, sceneGraph, isUpdating, patchSceneGraph, onApplyPatch, showNotification, setIsUpdatingWorld]);
 
   const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {

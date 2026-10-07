@@ -39,6 +39,7 @@ export const CharacterSchema = z.object({
   behavior: z.enum(['idle', 'patrol', 'sit', 'wander']).default('idle'),
   patrolPath: z.array(Vector3Tuple).optional(),
   assetUrl: z.string().optional(),
+  image: z.string().optional(),
   dialogueSeed: z.string().optional(),
 });
 
@@ -97,8 +98,8 @@ export const EventTriggerSchema = z.object({
 
 export const SkyboxConfigSchema = z.object({
   type: z.enum(['color', 'gradient', 'procedural']).default('gradient'),
-  topColor: z.string().optional(),
-  bottomColor: z.string().optional(),
+  topColor: z.union([z.string(), z.number()]).optional(),
+  bottomColor: z.union([z.string(), z.number()]).optional(),
   sunPosition: Vector3Tuple.optional(),
 });
 

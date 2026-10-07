@@ -62,3 +62,7 @@ RULES.md
 TECHNICAL_DEEP_DIVE.md
 .graphifyignore
 
+
+# Archify outputs
+.archify/
+

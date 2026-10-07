@@ -1,24 +1,24 @@
 import * as THREE from 'three';
+import { presetRegistry } from './presets/PresetRegistry';
 
-/** Creates a simple humanoid shape from primitives: body cylinder + head sphere */
-export function createDefaultHumanoid(color: number = 0x886644): THREE.Group {
-  const group = new THREE.Group();
+/**
+ * Creates a high-fidelity 3D volumetric character archetype from the preset registry,
+ * completely replacing the legacy cylinder/sphere primitive placeholder.
+ */
+export function createDefaultHumanoid(_color: number = 0x886644): THREE.Group {
+  return presetRegistry.spawn('npc_cyber_cyborg');
+}
 
-  // Body (cylinder)
-  const bodyGeo = new THREE.CylinderGeometry(0.3, 0.35, 1.2, 8);
-  const bodyMat = new THREE.MeshStandardMaterial({ color, roughness: 0.7 });
-  const body = new THREE.Mesh(bodyGeo, bodyMat);
-  body.position.y = 0.6;
-  body.castShadow = true;
-  group.add(body);
-
-  // Head (sphere)
-  const headGeo = new THREE.SphereGeometry(0.22, 12, 8);
-  const headMat = new THREE.MeshStandardMaterial({ color: 0xdeb887, roughness: 0.6 });
-  const head = new THREE.Mesh(headGeo, headMat);
-  head.position.y = 1.4;
-  head.castShadow = true;
-  group.add(head);
-
-  return group;
+/**
+ * Creates any specified NPC archetype preset from the catalog.
+ */
+export function createPresetNPC(
+  archetypeId:
+    | 'npc_cyber_cyborg'
+    | 'npc_arcane_mystic'
+    | 'npc_desert_scavenger'
+    | 'npc_forest_guardian'
+    | 'npc_steam_alchemist' = 'npc_cyber_cyborg'
+): THREE.Group {
+  return presetRegistry.spawn(archetypeId);
 }

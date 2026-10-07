@@ -370,6 +370,27 @@ export const transport = {
             return { success: false, error: { name: 'FetchError', message: err instanceof Error ? err.message : String(err) } };
           }
         }
+        case IPC_CHANNELS.IMAGE_PROCESS: {
+          const { base64 } = (payload || {}) as { base64: string; mimeType?: string };
+          const cleanB64 = (base64 || '').replace(/^data:image\/[a-z]+;base64,/, '').trim();
+          return {
+            success: true,
+            data: {
+              dimensions: { width: 512, height: 512 },
+              colors: ['#3b82f6', '#1e293b'],
+              contour: [
+                [0.50, 0.00], [0.59, 0.04], [0.62, 0.13], [0.58, 0.18],
+                [0.72, 0.24], [0.78, 0.38], [0.70, 0.52], [0.64, 0.65],
+                [0.62, 0.99], [0.54, 0.99], [0.52, 0.62], [0.46, 0.99],
+                [0.38, 0.99], [0.36, 0.65], [0.30, 0.52], [0.22, 0.38],
+                [0.28, 0.24], [0.42, 0.18], [0.38, 0.13], [0.41, 0.04],
+              ],
+              cleanBase64: cleanB64,
+              alphaBounds: { minX: 0, maxX: 512, minY: 0, maxY: 512 },
+              aspectRatio: 1.0,
+            } as unknown as T,
+          };
+        }
         default:
           return { success: false, error: { name: 'UnknownChannel', message: `Unknown IPC channel: ${channel}` } };
       }

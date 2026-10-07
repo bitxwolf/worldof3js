@@ -27,6 +27,13 @@ export const IPC_CHANNELS = {
   APP_GET_SETTINGS:  'app:get-settings',
   APP_SAVE_SETTINGS: 'app:save-settings',
   APP_VERSION:       'app:version',
+
+  // Orchestrator & Graph
+  ORCHESTRATOR_START: 'orchestrator:start',
+  ORCHESTRATOR_PROGRESS: 'orchestrator:progress',
+  ORCHESTRATOR_CANCEL: 'orchestrator:cancel',
+  GRAPH_LOAD: 'graph:load',
+  GRAPH_UPDATE: 'graph:update',
 } as const;
 
 export const LIMITS = {

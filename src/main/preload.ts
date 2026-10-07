@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron';
+import { contextBridge, ipcRenderer, webUtils } from 'electron';
 import { IPC_CHANNELS } from '../shared/constants';
 
 contextBridge.exposeInMainWorld('electronAPI', {
@@ -79,7 +79,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke(IPC_CHANNELS.FILE_EXPORT_HTML, graph),
 
   autoSaveWorld: (payload: unknown) =>
-    ipcRenderer.invoke('file:autosave-world', payload),
+    ipcRenderer.invoke(IPC_CHANNELS.FILE_AUTOSAVE_WORLD, payload),
+
+  // WebUtils for path resolution of dropped / picked files
+  webUtils: {
+    getPathForFile: (file: File): string => {
+      try {
+        return webUtils.getPathForFile(file);
+      } catch {
+        return (file as unknown as { path?: string }).path || '';
+      }
+    },
+  },
 
   // Images
   processImage: (base64: string, mimeType: string) =>

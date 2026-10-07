@@ -73,8 +73,8 @@ export class WorldBuilder {
 
     // Step 5: Spawn NPCs
     if (graph.characters && graph.characters.length > 0) {
-      this.npcSystem = new NPCSystem(this.sceneManager.scene);
-      this.npcSystem.spawnAll(graph.characters);
+      this.npcSystem = new NPCSystem(this.sceneManager.scene, this.sceneManager.registry);
+      await this.npcSystem.spawnAll(graph.characters);
     }
 
     // Step 5.5: Material safety sweep — fix any missing materials / wireframe ghosts
@@ -231,10 +231,10 @@ export class WorldBuilder {
     // 2. Add/Update characters
     if (partial.characters && partial.characters.length > 0) {
       if (!this.npcSystem) {
-        this.npcSystem = new NPCSystem(this.sceneManager.scene);
+        this.npcSystem = new NPCSystem(this.sceneManager.scene, this.sceneManager.registry);
       }
       for (const char of partial.characters) {
-        this.npcSystem.spawnAll([char]);
+        void this.npcSystem.spawnAll([char]);
       }
     }
 

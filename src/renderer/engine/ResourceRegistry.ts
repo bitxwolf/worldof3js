@@ -35,10 +35,22 @@ export class ResourceRegistry {
     object.traverse((child) => {
       if (child instanceof THREE.Mesh) {
         if (child.geometry) this.geometries.add(child.geometry);
-        if (Array.isArray(child.material)) {
-          child.material.forEach((m) => this.materials.add(m));
-        } else if (child.material) {
-          this.materials.add(child.material);
+        const mats = Array.isArray(child.material) ? child.material : child.material ? [child.material] : [];
+        for (const m of mats) {
+          if (m) {
+            this.materials.add(m);
+            const textureKeys = [
+              'map', 'normalMap', 'roughnessMap', 'metalnessMap', 'aoMap',
+              'emissiveMap', 'bumpMap', 'displacementMap', 'alphaMap',
+              'envMap', 'lightMap', 'specularMap'
+            ];
+            for (const key of textureKeys) {
+              const val = (m as unknown as Record<string, unknown>)[key];
+              if (val && typeof val === 'object' && 'isTexture' in val && (val as { isTexture: boolean }).isTexture) {
+                this.textures.add(val as THREE.Texture);
+              }
+            }
+          }
         }
       }
     });
@@ -63,5 +75,9 @@ export class ResourceRegistry {
       materials: this.materials.size,
       textures: this.textures.size,
     };
+  }
+
+  getStats(): { geometries: number; materials: number; textures: number } {
+    return this.stats;
   }
 }

@@ -9,7 +9,22 @@ const STEPS = [
 ] as const;
 
 export const GenerationOverlay = () => {
-  const { isGenerating, pipelineProgress } = useUIStore();
+  const { isGenerating, isUpdatingWorld, pipelineProgress } = useUIStore();
+
+  if (isUpdatingWorld) {
+    return (
+      <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/60 backdrop-blur-sm pointer-events-none">
+        <div className="bg-gray-950/95 border border-indigo-500/40 rounded-2xl p-6 w-80 shadow-2xl space-y-3 text-center pointer-events-auto">
+          <div className="text-2xl animate-spin">✨</div>
+          <h3 className="text-sm font-semibold text-white tracking-wider">UPDATING WORLD…</h3>
+          <p className="text-xs text-gray-400">Synthesizing and patching 3D entities live</p>
+          <div className="w-full bg-gray-800 rounded-full h-1.5 overflow-hidden">
+            <div className="bg-indigo-500 h-1.5 rounded-full animate-pulse w-full"></div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (!isGenerating) return null;
 

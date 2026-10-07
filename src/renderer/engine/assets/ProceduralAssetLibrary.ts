@@ -6,6 +6,7 @@
 // Seeded random is used so worlds re-generate consistently for the same prompt.
 
 import * as THREE from 'three';
+import { presetRegistry } from '../presets/PresetRegistry';
 
 // ── Tiny seeded PRNG (mulberry32) ─────────────────────────────────────────────
 // Lets us get the same "random" variation for the same world seed,
@@ -471,29 +472,32 @@ export class ProceduralAssetLibrary {
   }
 
   // ── Grass tufts ────────────────────────────────────────────────────────────
-  createGrassField(cx: number, cz: number, count = 200, radius = 15): void {
-    const mat = new THREE.MeshStandardMaterial({
-      color:       0x3a6a20,
-      roughness:   0.95,
-      side:        THREE.DoubleSide,
-    });
-
+  createGrassField(cx: number, cz: number, count = 100, radius = 15): void {
     for (let i = 0; i < count; i++) {
       const angle = this.rng() * Math.PI * 2;
       const dist  = this.rng() * radius;
       const x     = cx + Math.cos(angle) * dist;
       const z     = cz + Math.sin(angle) * dist;
-      const h     = 0.2 + this.rng() * 0.35;
-
-      const plane   = new THREE.Mesh(new THREE.PlaneGeometry(0.12, h), mat);
-      plane.position.set(x, h / 2, z);
-      plane.rotation.y = this.rng() * Math.PI;
-      this.scene.add(plane);
-
-      const plane2  = plane.clone();
-      plane2.rotation.y += Math.PI / 2;
-      this.scene.add(plane2);
+      const groundY = this.getElevation ? this.getElevation(x, z) : 0;
+      const tuft = presetRegistry.spawn('grass_tuft_dense', {
+        scale: 0.35 + this.rng() * 0.45,
+        rotationY: this.rng() * Math.PI * 2,
+        position: [x, groundY, z],
+      });
+      this.scene.add(tuft);
     }
+  }
+
+  // ── Ancient Obelisk Prop ─────────────────────────────────────────────────
+  createObelisk(x: number, z: number, scale = 1.0): THREE.Group {
+    const groundY = this.getElevation ? this.getElevation(x, z) : 0;
+    const obelisk = presetRegistry.spawn('prop_rune_obelisk', {
+      scale,
+      position: [x, groundY, z],
+      rotationY: this.rng() * Math.PI * 2,
+    });
+    this.scene.add(obelisk);
+    return obelisk;
   }
 
   // ── Scatter helper ────────────────────────────────────────────────────────

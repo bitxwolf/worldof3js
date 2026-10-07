@@ -55,6 +55,7 @@ interface UIState {
   isSettingsOpen: boolean;
   isLibraryOpen: boolean;
   isGenerating: boolean;
+  isUpdatingWorld: boolean;
   generationStep: string | null;
   generationError: string | null;
   pipelineProgress: number;
@@ -108,6 +109,7 @@ interface UIState {
   openLibrary: () => void;
   closeLibrary: () => void;
   setGenerating: (isGenerating: boolean, step?: string | null) => void;
+  setIsUpdatingWorld: (isUpdating: boolean) => void;
   setGenerationError: (error: string | null) => void;
   setPipelineProgress: (progress: number) => void;
   toggleJsonInspector: () => void;
@@ -153,6 +155,7 @@ export const useUIStore = create<UIState>((set) => ({
   isSettingsOpen: false,
   isLibraryOpen: false,
   isGenerating: false,
+  isUpdatingWorld: false,
   generationStep: null,
   generationError: null,
   pipelineProgress: 0,
@@ -220,6 +223,7 @@ export const useUIStore = create<UIState>((set) => ({
   closeLibrary: () => set({ isLibraryOpen: false }),
   setGenerating: (isGenerating, step = null) =>
     set({ isGenerating, generationStep: step, generationError: null }),
+  setIsUpdatingWorld: (isUpdatingWorld) => set({ isUpdatingWorld }),
   setGenerationError: (generationError) =>
     set({ generationError, isGenerating: false, generationStep: null }),
   setPipelineProgress: (pipelineProgress) => set({ pipelineProgress }),

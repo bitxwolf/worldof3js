@@ -32,6 +32,12 @@ export class EventSystem {
     this.clearCache();
   }
 
+  registerEvent(trigger: EventTrigger): void {
+    if (!this.events.some((e) => e.id === trigger.id)) {
+      this.events.push(trigger);
+    }
+  }
+
   appendEvents(newEvents: EventTrigger[]): void {
     const existingIds = new Set(this.events.map((e) => e.id));
     for (const ev of newEvents) {
@@ -99,36 +105,36 @@ export class EventSystem {
    */
   handleInteraction(targetId: string, currentItemId: string | undefined, scene: THREE.Scene): boolean {
     const currentFlags = useWorldStore.getState().flags;
-    let handled = false;
 
-    for (const trigger of this.events) {
-      if (this.firedEventIds.has(trigger.id)) continue;
+    // 1. If player is holding a selected item, prioritize matching item_use triggers
+    if (currentItemId) {
+      for (const trigger of this.events) {
+        if (this.firedEventIds.has(trigger.id)) continue;
+        if (trigger.requiredFlag && !currentFlags[trigger.requiredFlag]) continue;
 
-      if (trigger.requiredFlag && !currentFlags[trigger.requiredFlag]) {
-        continue;
-      }
-
-      // Check standard interaction trigger
-      if (trigger.type === 'interaction' && trigger.target === targetId) {
-        this.executeAction(trigger.action, trigger, scene);
-        handled = true;
-        break;
-      }
-
-      // Check item use trigger
-      if (
-        trigger.type === 'item_use' &&
-        trigger.target === targetId &&
-        trigger.requiredItem &&
-        trigger.requiredItem === currentItemId
-      ) {
-        this.executeAction(trigger.action, trigger, scene);
-        handled = true;
-        break;
+        if (
+          trigger.type === 'item_use' &&
+          trigger.target === targetId &&
+          trigger.requiredItem === currentItemId
+        ) {
+          this.executeAction(trigger.action, trigger, scene);
+          return true;
+        }
       }
     }
 
-    return handled;
+    // 2. Check standard interaction triggers
+    for (const trigger of this.events) {
+      if (this.firedEventIds.has(trigger.id)) continue;
+      if (trigger.requiredFlag && !currentFlags[trigger.requiredFlag]) continue;
+
+      if (trigger.type === 'interaction' && trigger.target === targetId) {
+        this.executeAction(trigger.action, trigger, scene);
+        return true;
+      }
+    }
+
+    return false;
   }
 
   private executeAction(action: EventAction, trigger: EventTrigger, scene: THREE.Scene): void {
@@ -181,11 +187,16 @@ export class EventSystem {
           // Subtle unlock visual swing
           obj.rotation.y += Math.PI / 2;
         }
-        useUIStore.getState().showNotification(
-          (payload.text as string) || 'Mechanism unlocked.',
-          3500,
-          'success'
-        );
+        // Story progression flag persistence across events
+        const flagKey = (payload.flag as string) || `${targetId}_unlocked`;
+        useWorldStore.getState().setFlag(flagKey, true);
+        useWorldStore.getState().setFlag('door_unlocked', true);
+
+        const notifyText =
+          (payload.text as string) ||
+          (payload.message as string) ||
+          'The door creaks open';
+        useUIStore.getState().showNotification(notifyText, 3500, 'success');
         break;
       }
 
@@ -215,12 +226,27 @@ export class EventSystem {
 
   private findObjectById(scene: THREE.Scene, id: string): THREE.Object3D | null {
     if (this.objectCache.has(id)) {
-      return this.objectCache.get(id) || null;
+      const cached = this.objectCache.get(id);
+      if (cached && (cached.parent || cached === scene)) {
+        return cached;
+      }
+      this.objectCache.delete(id);
     }
     let found: THREE.Object3D | null = null;
+    const idLower = id.toLowerCase();
     scene.traverse((child) => {
       if (found) return;
-      if (child.userData?.id === id || child.name === id) {
+      const cId = child.userData?.id;
+      const cName = child.name;
+      const cUName = child.userData?.name;
+      if (
+        cId === id ||
+        cName === id ||
+        cUName === id ||
+        (typeof cId === 'string' && cId.toLowerCase() === idLower) ||
+        (typeof cName === 'string' && cName.toLowerCase() === idLower) ||
+        (typeof cUName === 'string' && cUName.toLowerCase() === idLower)
+      ) {
         found = child;
       }
     });
