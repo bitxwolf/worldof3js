@@ -75,8 +75,12 @@ export function escapeHtml(str: unknown): string {
 export function generateStandaloneHtml(graph: SceneGraph & { code?: string }): string {
   const worldName = graph?.world?.name || 'World';
   const worldDesc = graph?.world?.description || 'An interactive 3D world created with Orbis.';
-  const serializedGraph = JSON.stringify(graph).replace(/<\/script>/gi, '<\\/script>');
   const safeCode = validateExportCode(graph.code);
+  const cleanGraph = { ...graph };
+  if ('code' in cleanGraph) {
+    cleanGraph.code = safeCode || undefined;
+  }
+  const serializedGraph = JSON.stringify(cleanGraph).replace(/<\/script>/gi, '<\\/script>');
 
   const biome = graph?.world?.biome || 'forest';
   const groundColorHex =
@@ -107,7 +111,7 @@ export function generateStandaloneHtml(graph: SceneGraph & { code?: string }): s
     #dialogue { display: none; position: absolute; bottom: 60px; left: 50%; transform: translateX(-50%); background: rgba(15, 23, 42, 0.95); border: 1px solid #6366f1; border-radius: 12px; padding: 16px 20px; color: #fff; max-width: 480px; width: 90%; font-size: 13px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
     #dialogue-speaker { font-weight: bold; color: #34d399; margin-bottom: 4px; }
   </style>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/0.160.0/three.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 </head>
 <body>
   <div id="overlay">
@@ -134,6 +138,7 @@ export function generateStandaloneHtml(graph: SceneGraph & { code?: string }): s
     camera.position.set(startPos[0], startPos[1] || 1.7, startPos[2]);
 
     const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.domElement.id = 'worldCanvas';
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.shadowMap.enabled = true;
