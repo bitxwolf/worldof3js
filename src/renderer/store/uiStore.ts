@@ -79,6 +79,10 @@ interface UIState {
   activeBiome: BiomeType;
   tuningParams: TuningParams;
 
+  // Generation mode
+  generationMode: 'detailed' | 'quick';
+  setGenerationMode: (mode: 'detailed' | 'quick') => void;
+
   // Selected Object in 3D Scene
   selectedNode: SelectedNodeInfo | null;
   sceneHierarchy: SceneHierarchyItem[];
@@ -183,6 +187,7 @@ export const useUIStore = create<UIState>((set) => ({
     metalness: 0.10,
     castShadow: true,
   },
+  generationMode: 'detailed',
 
   selectedNode: null,
   sceneHierarchy: [
@@ -304,6 +309,7 @@ export const useUIStore = create<UIState>((set) => ({
   reseed: () =>
     set({ seed: Math.floor(Math.random() * 900000) + 100000 }),
   setActiveBiome: (activeBiome) => set({ activeBiome }),
+  setGenerationMode: (generationMode) => set({ generationMode }),
   setTuningParam: (key, value) =>
     set((state) => ({
       tuningParams: {

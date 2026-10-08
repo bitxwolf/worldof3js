@@ -7,6 +7,9 @@ import { ClaudeService } from '../main/services/ClaudeService';
 import { StoreService } from '../main/services/StoreService';
 import { ImageService } from '../main/services/ImageService';
 import { APP_VERSION } from '../shared/constants';
+import { SqliteGraphStore, SqliteStorageAdapter } from '../main/storage/SqliteAdapters';
+import { ParentAgent } from '../main/agents/parentAgent';
+import { WorldGraph } from '../main/memory/WorldGraph';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -20,6 +23,8 @@ app.use(express.static(path.join(__dirname, '../../out/renderer')));
 
 const claude = new ClaudeService(StoreService);
 const imageService = new ImageService();
+const graphStore = new SqliteGraphStore();
+const kvStore = new SqliteStorageAdapter();
 
 // App
 app.get('/api/app/get-settings', (_req, res) => {
@@ -136,6 +141,42 @@ app.post('/api/file/export-html', async (_req, res) => {
 
 app.post('/api/file/autosave-world', async (_req, res) => {
   res.json({ success: false, error: { name: 'NotImplemented', message: 'Not implemented in browser mode' } });
+});
+
+// Orchestrator & Graph
+app.post('/api/orchestrator/generate', async (req, res) => {
+  try {
+    const agent = new ParentAgent(StoreService, graphStore, kvStore, (_evt) => {});
+    const result = await agent.generate(req.body);
+    res.json({ success: true, data: result });
+  } catch (err) {
+    const e = err instanceof Error ? err : new Error(String(err));
+    console.error(`[Orchestrator:generate] ${e.message}`);
+    res.json({ success: false, error: { name: e.name, message: e.message } });
+  }
+});
+
+app.post('/api/orchestrator/edit-selection', async (req, res) => {
+  try {
+    const agent = new ParentAgent(StoreService, graphStore, kvStore, (_evt) => {});
+    const result = await agent.editSelection(req.body.sessionId, req.body.selection, req.body.updateRequest);
+    res.json({ success: true, data: result });
+  } catch (err) {
+    const e = err instanceof Error ? err : new Error(String(err));
+    res.json({ success: false, error: { name: e.name, message: e.message } });
+  }
+});
+
+app.post('/api/graph/query-radius', async (req, res) => {
+  try {
+    const graph = new WorldGraph(graphStore);
+    await graph.hydrate(req.body.sessionId);
+    const nodes = graph.queryRadius(req.body.x, req.body.z, req.body.radius);
+    res.json({ success: true, data: { nodes } });
+  } catch (err) {
+    const e = err instanceof Error ? err : new Error(String(err));
+    res.json({ success: false, error: { name: e.name, message: e.message } });
+  }
 });
 
 // Serve renderer for all other routes (client-side routing)

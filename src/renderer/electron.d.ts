@@ -6,7 +6,13 @@ import type {
   NPCReplyPayload,
   SavedWorld,
   ProcessedImage,
+  OrchestratorGeneratePayload,
+  OrchestratorEditPayload,
+  GraphQueryRadiusPayload,
+  GraphQueryRadiusResult,
+  CompiledWorldResult,
 } from '../shared/ipc.types';
+import type { OrchestratorProgressEvent } from '../shared/agents/agentTypes';
 import type { SceneGraph } from '../shared/schema/sceneGraph.schema';
 
 declare global {
@@ -46,6 +52,12 @@ declare global {
 
       // Images
       processImage: (b64: string, mime: string) => Promise<IPCResult<ProcessedImage>>;
+
+      // Orchestrator & Graph
+      orchestrate: (p: OrchestratorGeneratePayload) => Promise<IPCResult<CompiledWorldResult>>;
+      editSelection: (p: OrchestratorEditPayload) => Promise<IPCResult<CompiledWorldResult>>;
+      queryRadius: (p: GraphQueryRadiusPayload) => Promise<IPCResult<GraphQueryRadiusResult>>;
+      onOrchestratorProgress: (cb: (evt: OrchestratorProgressEvent) => void) => () => void;
 
       // WebUtils
       webUtils?: {

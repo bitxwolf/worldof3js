@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import { useUIStore, type BiomeType } from '../../store/uiStore';
+import { useUIStore } from '../../store/uiStore';
 import { useWorldStore } from '../../store/worldStore';
+import { useOrchestratorStore } from '../../store/orchestratorStore';
 
 const PROMPT_CHIPS = [
   'Pine Valley with Watchtower',
@@ -13,94 +14,46 @@ export const SpotlightPromptBar = () => {
   const {
     isGenerating,
     setGenerating,
-    pipelineProgress,
-    setPipelineProgress,
-    addIpcLog,
     showNotification,
+    generationMode,
+    setGenerationMode,
   } = useUIStore();
 
-  const { setSceneGraph, setGeneratedCode } = useWorldStore();
+  const { setSceneGraph } = useWorldStore();
+  
+  const activeSelection = useOrchestratorStore((s) => s.activeSelection);
+  const progress = useOrchestratorStore((s) => s.progress);
 
   const [promptText, setPromptText] = useState('');
-  const [stepLabel, setStepLabel] = useState('Synthesizing SceneGraph AST from prompt...');
 
   const triggerWorldGeneration = async (text: string) => {
     if (!text.trim() || isGenerating) return;
 
-    setGenerating(true, 'Synthesizing SceneGraph AST...');
-    setPipelineProgress(25);
-    setStepLabel('LLM Engine: Synthesizing SceneGraph AST...');
-    addIpcLog(`[LLM:PIPELINE] Input received: "${text}"`, 'build');
-
-    // Infer target biome
-    let targetBiome: BiomeType = 'pine';
-    const p = text.toLowerCase();
-    if (p.includes('cyber') || p.includes('neon') || p.includes('city') || p.includes('alley')) {
-      targetBiome = 'cyber';
-    } else if (p.includes('canyon') || p.includes('desert') || p.includes('oasis')) {
-      targetBiome = 'canyon';
-    } else if (p.includes('alien') || p.includes('spire') || p.includes('mushroom') || p.includes('biolum')) {
-      targetBiome = 'alien';
-    } else if (p.includes('ruin') || p.includes('stone') || p.includes('monolith') || p.includes('dusk')) {
-      targetBiome = 'ruins';
-    }
+    setGenerating(true, 'Initiating generation...');
+    useWorldStore.getState().setCustomWorldActive(true);
 
     try {
-      if (window.electronAPI?.parseWorld) {
-        // Lock out preset biome effect BEFORE the async IPC call
-        useWorldStore.getState().setCustomWorldActive(true);
-        setPipelineProgress(45);
-        setStepLabel('Parsing narrative into structured 3D SceneGraph...');
-        const { uploadedDocument, uploadedImages } = useWorldStore.getState();
-        const parseRes = await window.electronAPI.parseWorld({
-          text,
-          document: uploadedDocument ?? undefined,
-          images: uploadedImages.length > 0 ? uploadedImages.map((img) => ({ base64: img.base64, mimeType: img.mimeType, tag: img.tag as 'character' | 'scene' | 'texture' })) : undefined,
-        });
-        if (parseRes.success && parseRes.data) {
-          setPipelineProgress(70);
-          setStepLabel('Zod Schema: Validating node constraints & bounds...');
-          addIpcLog('[ZOD:VALIDATE] SceneGraph passed strict schema validation.', 'success');
-          setSceneGraph(parseRes.data);
+      let result;
+      if (activeSelection) {
+        result = await useOrchestratorStore.getState().editSelection(text);
+      } else {
+        result = await useOrchestratorStore.getState().generateWorld(text, generationMode);
+      }
 
-          if (window.electronAPI.generateCode) {
-            setPipelineProgress(85);
-            setStepLabel('AssetPipeline: Baking multi-tier procedural meshes...');
-            const codeRes = await window.electronAPI.generateCode(parseRes.data);
-            if (codeRes.success && codeRes.data) {
-              setGeneratedCode(codeRes.data);
-            }
-          }
-
-          setPipelineProgress(100);
-          setStepLabel('Generation complete!');
-          addIpcLog(`[PROCEDURAL:DONE] Spawned generated world for biome '${targetBiome}'.`, 'success');
-          showNotification('World generated successfully!', 3500, 'success');
-
-          setTimeout(() => {
-            setGenerating(false);
-            setPipelineProgress(0);
-          }, 800);
-          return;
-        }
+      if (result) {
+        useUIStore.getState().setActiveBiome(result.activeBiome);
+        setSceneGraph(result.sceneGraph);
+        showNotification('World generated successfully!', 3500, 'success');
       }
     } catch (err: unknown) {
-      console.warn('Real IPC generation call failed:', err);
+      console.warn('Generation failed:', err);
       showNotification('Unexpected generation error', 5000, 'error');
-      addIpcLog(`[GEN ERROR] ${String(err)}`, 'error');
       useWorldStore.getState().setCustomWorldActive(false);
-      setGenerating(false);
-      setPipelineProgress(0);
-      setStepLabel('');
+    } finally {
+      setTimeout(() => {
+        setGenerating(false);
+      }, 800);
     }
-
-    // Generation failed — surface the error, never fall through to biome swap
-    showNotification('Generation failed. Check API key in Settings.', 6000, 'error');
-    addIpcLog('[GEN ERROR] Generation failed — no fallback.', 'error');
-    useWorldStore.getState().setCustomWorldActive(false);
-    setGenerating(false);
-    setPipelineProgress(0);
-    setStepLabel('');
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -112,18 +65,18 @@ export const SpotlightPromptBar = () => {
   return (
     <div className="absolute bottom-4 left-1/2 -translate-x-1/2 w-11/12 max-w-2xl z-30 flex flex-col space-y-2 pointer-events-auto">
       {/* Pipeline Status Pill */}
-      {isGenerating && (
+      {isGenerating && progress && (
         <div
           id="pipelineStatusPill"
           className="self-center flex items-center space-x-2 px-3 py-1 rounded-full bg-black/90 mac-blur border border-blue-500/30 text-[11px] text-blue-200 shadow-xl"
         >
           <span className="w-1.5 h-1.5 rounded-full bg-blue-400 pulse-indicator" />
-          <span id="pipelineStepText">{stepLabel}</span>
+          <span id="pipelineStepText">{progress.message || 'Generating...'}</span>
           <div className="w-16 h-1 bg-white/20 rounded-full overflow-hidden ml-1">
             <div
               id="pipelineProgressBar"
               className="h-full bg-blue-400 transition-all duration-300"
-              style={{ width: `${pipelineProgress}%` }}
+              style={{ width: `${progress.percentComplete}%` }}
             />
           </div>
         </div>
@@ -131,7 +84,46 @@ export const SpotlightPromptBar = () => {
 
       {/* Floating Spotlight Prompt Input Box */}
       <div className="p-1.5 rounded-2xl bg-mac-surface/90 mac-blur border border-white/15 shadow-2xl flex flex-col space-y-1.5">
-        <div className="flex items-center space-x-2 px-2">
+        
+        {/* Selection Badge & Mode Selector */}
+        <div className="flex items-center justify-between px-2 pt-1">
+          <div className="flex items-center space-x-2">
+            {activeSelection && (
+              <div className="flex items-center space-x-1 px-2 py-0.5 rounded-full bg-blue-500/20 border border-blue-500/30 text-[10px] text-blue-300">
+                <span>Editing Selection (R={activeSelection.radiusWorldUnits.toFixed(1)}m)</span>
+                <button
+                  type="button"
+                  onClick={() => useOrchestratorStore.getState().clearSelection()}
+                  className="hover:text-white transition-colors"
+                >
+                  <i className="ph ph-x" />
+                </button>
+              </div>
+            )}
+          </div>
+          <div className="flex bg-black/40 rounded-lg p-0.5 text-[10px]">
+            <button
+              type="button"
+              onClick={() => setGenerationMode('quick')}
+              className={`px-2 py-0.5 rounded-md transition-colors ${
+                generationMode === 'quick' ? 'bg-white/20 text-white shadow-sm' : 'text-white/50 hover:text-white/80'
+              }`}
+            >
+              Quick
+            </button>
+            <button
+              type="button"
+              onClick={() => setGenerationMode('detailed')}
+              className={`px-2 py-0.5 rounded-md transition-colors ${
+                generationMode === 'detailed' ? 'bg-white/20 text-white shadow-sm' : 'text-white/50 hover:text-white/80'
+              }`}
+            >
+              Detailed
+            </button>
+          </div>
+        </div>
+
+        <div className="flex items-center space-x-2 px-2 pb-1">
           <i className="ph ph-sparkle text-blue-400 text-lg" />
           <input
             id="spotlightInput"
@@ -151,14 +143,14 @@ export const SpotlightPromptBar = () => {
               onClick={() => triggerWorldGeneration(promptText)}
               className="px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 active:scale-95 disabled:opacity-60 text-white font-medium text-xs flex items-center space-x-1.5 transition shadow-md cursor-pointer"
             >
-              <span>Generate</span>
+              <span>{activeSelection ? 'Edit' : 'Generate'}</span>
               <i className="ph ph-arrow-up-right font-bold text-xs" />
             </button>
           </div>
         </div>
 
         {/* Quick Prompt Chips */}
-        <div className="flex items-center space-x-1.5 pt-1 overflow-x-auto custom-scrollbar text-[11px] text-mac-textMuted px-2 pb-0.5">
+        <div className="flex items-center space-x-1.5 pt-1 overflow-x-auto custom-scrollbar text-[11px] text-mac-textMuted px-2 pb-0.5 border-t border-white/5">
           <span className="text-[10px] uppercase font-bold text-white/40 mr-1 flex items-center">
             <i className="ph ph-lightning mr-1 text-amber-400" /> Presets:
           </span>

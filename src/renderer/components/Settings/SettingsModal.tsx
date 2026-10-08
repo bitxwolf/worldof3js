@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useUIStore } from '../../store/uiStore';
 import { transport } from '../../../shared/transport';
+import { AgentOverridesSection } from './AgentOverridesSection';
+import type { AgentModelConfig } from '../../../shared/config/modelConfig';
 
 const ANTHROPIC_FALLBACK_MODELS = [
   'claude-opus-4-5',
@@ -35,6 +37,9 @@ export const SettingsModal = () => {
   // Generation quality
   const [quality, setQuality] = useState<'fast' | 'quality'>('fast');
 
+  // Agent model overrides
+  const [agentOverrides, setAgentOverrides] = useState<AgentModelConfig>({});
+
   // Load saved settings & models on open
   useEffect(() => {
     if (!isSettingsOpen) return;
@@ -49,6 +54,7 @@ export const SettingsModal = () => {
         if (s.openaiApiKey) setOpenaiKey(s.openaiApiKey);
         if (s.anthropicApiKey) setAnthropicKey(s.anthropicApiKey);
         if (s.quality) setQuality(s.quality);
+        if (s.agentModelOverrides) setAgentOverrides(s.agentModelOverrides);
 
         // OpenAI models restoring
         const savedOpenaiModels = s.openaiModelList ? [...s.openaiModelList] : [];
@@ -149,6 +155,7 @@ export const SettingsModal = () => {
       anthropicModelList: anthropicModels,
       apiKey: activeProvider === 'anthropic' ? anthropicKey : openaiKey,
       model: activeProvider === 'anthropic' ? anthropicModel : openaiModel,
+      agentModelOverrides: agentOverrides,
     };
 
     if (window.electronAPI?.saveSettings) {
@@ -326,6 +333,12 @@ export const SettingsModal = () => {
             </button>
           </div>
         </div>
+
+        {/* Agent Model Overrides */}
+        <AgentOverridesSection
+          overrides={agentOverrides}
+          onChange={setAgentOverrides}
+        />
 
         {/* Footer */}
         <div className="settings-footer">

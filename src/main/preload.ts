@@ -100,4 +100,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Images
   processImage: (base64: string, mimeType: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.IMAGE_PROCESS, { base64, mimeType }),
+
+  // Orchestrator & Graph
+  orchestrate: (payload: unknown) => ipcRenderer.invoke(IPC_CHANNELS.ORCHESTRATOR_GENERATE, payload),
+  editSelection: (payload: unknown) => ipcRenderer.invoke(IPC_CHANNELS.ORCHESTRATOR_EDIT_SELECTION, payload),
+  queryRadius: (payload: unknown) => ipcRenderer.invoke(IPC_CHANNELS.GRAPH_QUERY_RADIUS, payload),
+  onOrchestratorProgress: (cb: (evt: unknown) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, evt: unknown) => cb(evt);
+    ipcRenderer.on(IPC_CHANNELS.ORCHESTRATOR_PROGRESS, handler);
+    return () => { ipcRenderer.removeListener(IPC_CHANNELS.ORCHESTRATOR_PROGRESS, handler); };
+  },
 });

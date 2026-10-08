@@ -6,7 +6,13 @@ import type {
   UpdateWorldPayload,
   NPCReplyPayload,
   ProcessedImage,
+  OrchestratorGeneratePayload,
+  OrchestratorEditPayload,
+  GraphQueryRadiusPayload,
+  GraphQueryRadiusResult,
+  CompiledWorldResult,
 } from './ipc.types';
+import type { OrchestratorProgressEvent } from './agents/agentTypes';
 import type { SceneGraph } from './schema/sceneGraph.schema';
 import { IPC_CHANNELS } from './constants';
 import { WORLD_PARSER_SYSTEM, buildWorldParserUser } from './prompts/world-parser.prompt';
@@ -273,6 +279,12 @@ export const transport = {
           return window.electronAPI.fetchOpenAIModels(payload as { baseUrl: string; apiKey: string }) as Promise<IPCResult<T>>;
         case 'settings:fetch-anthropic-models':
           return window.electronAPI.fetchAnthropicModels(payload as { apiKey: string }) as Promise<IPCResult<T>>;
+        case IPC_CHANNELS.ORCHESTRATOR_GENERATE:
+          return window.electronAPI.orchestrate(payload as OrchestratorGeneratePayload) as Promise<IPCResult<T>>;
+        case IPC_CHANNELS.ORCHESTRATOR_EDIT_SELECTION:
+          return window.electronAPI.editSelection(payload as OrchestratorEditPayload) as Promise<IPCResult<T>>;
+        case IPC_CHANNELS.GRAPH_QUERY_RADIUS:
+          return window.electronAPI.queryRadius(payload as GraphQueryRadiusPayload) as Promise<IPCResult<T>>;
         default:
           return {
             success: false,
@@ -391,6 +403,30 @@ export const transport = {
             } as unknown as T,
           };
         }
+        case IPC_CHANNELS.ORCHESTRATOR_GENERATE: {
+          const res = await fetch('/api/orchestrator/generate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          });
+          return (await res.json()) as IPCResult<T>;
+        }
+        case IPC_CHANNELS.ORCHESTRATOR_EDIT_SELECTION: {
+          const res = await fetch('/api/orchestrator/edit-selection', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          });
+          return (await res.json()) as IPCResult<T>;
+        }
+        case IPC_CHANNELS.GRAPH_QUERY_RADIUS: {
+          const res = await fetch('/api/graph/query-radius', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          });
+          return (await res.json()) as IPCResult<T>;
+        }
         default:
           return { success: false, error: { name: 'UnknownChannel', message: `Unknown IPC channel: ${channel}` } };
       }
@@ -444,4 +480,18 @@ export const transport = {
 
   fetchAnthropicModels: (p: { apiKey: string }): Promise<IPCResult<{ models: string[] }>> =>
     transport.call<{ models: string[] }>('settings:fetch-anthropic-models', p),
+
+  orchestrate: (p: OrchestratorGeneratePayload) =>
+    transport.call<CompiledWorldResult>(IPC_CHANNELS.ORCHESTRATOR_GENERATE, p),
+
+  editSelection: (p: OrchestratorEditPayload) =>
+    transport.call<CompiledWorldResult>(IPC_CHANNELS.ORCHESTRATOR_EDIT_SELECTION, p),
+
+  queryRadius: (p: GraphQueryRadiusPayload) =>
+    transport.call<GraphQueryRadiusResult>(IPC_CHANNELS.GRAPH_QUERY_RADIUS, p),
+
+  onOrchestratorProgress: (cb: (evt: OrchestratorProgressEvent) => void) => {
+    if (isElectron()) return window.electronAPI.onOrchestratorProgress(cb);
+    return () => {};
+  },
 };

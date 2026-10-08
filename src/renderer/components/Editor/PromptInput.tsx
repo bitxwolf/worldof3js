@@ -1,8 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useUIStore } from '../../store/uiStore';
 import { useWorldStore } from '../../store/worldStore';
-import { parseWorld } from '../../llm/WorldParser';
-import { generateCode } from '../../llm/SceneCodegen';
+import { useOrchestratorStore } from '../../store/orchestratorStore';
 import { DocumentUploader } from './DocumentUploader';
 import type { UploadedImage } from './ImageUploader';
 import { transport } from '../../../shared/transport';
@@ -15,11 +14,8 @@ const SAMPLE_PROMPTS = [
   'A cyberpunk alleyway at midnight under neon rain. A rogue mechanic stands near a locked warehouse door.',
 ];
 
-interface PromptInputProps {
-  uploadedImages?: UploadedImage[];
-}
-
-export const PromptInput = ({ uploadedImages = [] }: PromptInputProps) => {
+export const PromptInput = ({ uploadedImages = [] }: { uploadedImages?: UploadedImage[] }) => {
+  void uploadedImages;
   const [text, setText] = useState('');
   const [documentContent, setDocumentContent] = useState<string | null>(null);
   const [hasApiKey, setHasApiKey] = useState(true);
@@ -27,14 +23,16 @@ export const PromptInput = ({ uploadedImages = [] }: PromptInputProps) => {
     openSettings,
     isSettingsOpen,
     isGenerating,
-    generationStep,
     generationError,
     setGenerating,
     setGenerationError,
     setJsonInspectorOpen,
     setViewMode,
+    generationMode,
+    setGenerationMode,
   } = useUIStore();
-  const { setSceneGraph, setGeneratedCode } = useWorldStore();
+  const { setSceneGraph } = useWorldStore();
+  const progress = useOrchestratorStore((s) => s.progress);
 
   useEffect(() => {
     let mounted = true;
@@ -75,28 +73,21 @@ export const PromptInput = ({ uploadedImages = [] }: PromptInputProps) => {
     }
 
     try {
-      setGenerating(true, '1/3 Analyzing narrative with Claude...');
-      const graph = await parseWorld({
-        text: text.trim(),
-        document: documentContent || undefined,
-        images: uploadedImages?.map((img) => ({
-          base64: img.base64,
-          mimeType: img.mimeType,
-          tag: img.tag,
-        })),
-      });
-
-      setGenerating(true, '2/3 Generating Three.js procedural scene code...');
-      const code = await generateCode(graph);
-
-      setGenerating(true, '3/3 Assembling world...');
-      setSceneGraph(graph);
-      setGeneratedCode(code);
-      setJsonInspectorOpen(true);
+      setGenerating(true, 'Initializing...');
+      useWorldStore.getState().setCustomWorldActive(true);
+      
+      const result = await useOrchestratorStore.getState().generateWorld(text.trim(), generationMode);
+      
+      if (result) {
+        useUIStore.getState().setActiveBiome(result.activeBiome);
+        setSceneGraph(result.sceneGraph);
+        setJsonInspectorOpen(true);
+      }
       setGenerating(false, null);
     } catch (err: unknown) {
       const errorMsg = err instanceof Error ? err.message : String(err);
       setGenerationError(errorMsg);
+      setGenerating(false, null);
     }
   };
 
@@ -107,8 +98,28 @@ export const PromptInput = ({ uploadedImages = [] }: PromptInputProps) => {
           <label className="text-sm font-semibold text-gray-200">
             Describe Your World
           </label>
+          <div className="flex bg-gray-900 rounded-lg p-0.5 text-[11px] border border-gray-800">
+            <button
+              type="button"
+              onClick={() => setGenerationMode('quick')}
+              className={`px-2 py-0.5 rounded-md transition-colors ${
+                generationMode === 'quick' ? 'bg-indigo-600 text-white shadow-sm' : 'text-gray-400 hover:text-white'
+              }`}
+            >
+              Quick
+            </button>
+            <button
+              type="button"
+              onClick={() => setGenerationMode('detailed')}
+              className={`px-2 py-0.5 rounded-md transition-colors ${
+                generationMode === 'detailed' ? 'bg-indigo-600 text-white shadow-sm' : 'text-gray-400 hover:text-white'
+              }`}
+            >
+              Detailed
+            </button>
+          </div>
           <span className="text-xs text-gray-400">
-            {text.length} / 4000 characters
+            {text.length} / 4000
           </span>
         </div>
         <textarea
@@ -177,16 +188,20 @@ export const PromptInput = ({ uploadedImages = [] }: PromptInputProps) => {
         </div>
       )}
 
-      {isGenerating && (
+      {isGenerating && progress && (
         <div className="bg-indigo-950/40 border border-indigo-800/80 rounded-xl p-3.5 space-y-2">
           <div className="flex items-center justify-between text-xs text-indigo-300 font-medium">
             <span className="flex items-center gap-2">
               <span className="animate-spin inline-block">⚙️</span>
-              {generationStep}
+              {progress.message || 'Generating...'}
             </span>
+            <span>{progress.percentComplete}%</span>
           </div>
           <div className="w-full bg-gray-800 rounded-full h-1.5 overflow-hidden">
-            <div className="bg-indigo-500 h-1.5 rounded-full animate-pulse w-3/4"></div>
+            <div 
+              className="bg-indigo-500 h-1.5 rounded-full transition-all duration-300" 
+              style={{ width: `${progress.percentComplete}%` }}
+            ></div>
           </div>
         </div>
       )}

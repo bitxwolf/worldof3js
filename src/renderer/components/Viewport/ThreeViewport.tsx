@@ -5,6 +5,9 @@ import { PointerLockControls } from 'three/examples/jsm/controls/PointerLockCont
 import { useWorldStore } from '../../store/worldStore';
 import { useUIStore, type BiomeType, type SceneHierarchyItem } from '../../store/uiStore';
 import { useNPCStore } from '../../store/npcStore';
+import { useOrchestratorStore } from '../../store/orchestratorStore';
+import { CircleSelectTool } from './CircleSelectTool';
+
 import { NotificationToast } from '../HUD/NotificationToast';
 import { SpotlightPromptBar } from './SpotlightPromptBar';
 import { Crosshair } from '../HUD/Crosshair';
@@ -60,6 +63,7 @@ export const ThreeViewport = () => {
   const { sceneGraph, generatedCode } = useWorldStore();
   const { setActiveNPC } = useNPCStore();
   const activeNPC = useNPCStore((s) => s.activeNPC);
+  const regionElevations = useOrchestratorStore((s) => s.lastResult?.regionElevations);
 
   // Engine refs
   const sceneRef = useRef<THREE.Scene | null>(null);
@@ -75,6 +79,8 @@ export const ThreeViewport = () => {
   const selectionBoxRef = useRef<THREE.BoxHelper | null>(null);
   const npcCharacterRef = useRef<THREE.Group | null>(null);
   const pointerLockRef = useRef<PointerLockControls | null>(null);
+  const [isCircleSelectActive, setIsCircleSelectActive] = useState(false);
+  const circleSelectToolRef = useRef<CircleSelectTool | null>(null);
 
   // Movement in walk mode
   const moveKeysRef = useRef({ forward: false, backward: false, left: false, right: false });
@@ -324,6 +330,37 @@ export const ThreeViewport = () => {
     }
   };
 
+  useEffect(() => {
+    if (!sceneRef.current || !cameraRef.current || !canvasRef.current || !terrainMeshRef.current) return;
+
+    if (isCircleSelectActive) {
+      if (controlsRef.current) controlsRef.current.enabled = false;
+      const tool = new CircleSelectTool(
+        sceneRef.current,
+        cameraRef.current,
+        canvasRef.current,
+        terrainMeshRef.current,
+        activeBiome
+      );
+      circleSelectToolRef.current = tool;
+    } else {
+      if (circleSelectToolRef.current) {
+        circleSelectToolRef.current.dispose();
+        circleSelectToolRef.current = null;
+      }
+      if (controlsRef.current && cameraMode !== 'walk') {
+        controlsRef.current.enabled = true;
+      }
+    }
+
+    return () => {
+      if (circleSelectToolRef.current) {
+        circleSelectToolRef.current.dispose();
+        circleSelectToolRef.current = null;
+      }
+    };
+  }, [isCircleSelectActive, activeBiome, cameraMode]);
+
   // Traverse Three.js scene and update Hierarchy tab (Point 75)
   const syncSceneHierarchy = useCallback((scene: THREE.Scene) => {
     const items: SceneHierarchyItem[] = [];
@@ -496,11 +533,27 @@ export const ThreeViewport = () => {
       const terrainGeo = new THREE.PlaneGeometry(terrainSize, terrainSize, segments, segments);
       terrainGeo.rotateX(-Math.PI / 2);
 
+      const getBlendedElevation = (x: number, z: number, defaultAmp: number) => {
+        if (!regionElevations || regionElevations.length === 0) {
+          return getElevation(x, z, seed, defaultAmp);
+        }
+        let totalWeight = 0;
+        let blendedAmp = 0;
+        for (const r of regionElevations) {
+          const dist = Math.sqrt(Math.pow(x - r.centerX, 2) + Math.pow(z - r.centerZ, 2));
+          const weight = 1 / Math.pow((dist / r.radius) + 1, 2);
+          blendedAmp += r.amplitude * weight;
+          totalWeight += weight;
+        }
+        const finalAmp = totalWeight > 0 ? blendedAmp / totalWeight : defaultAmp;
+        return getElevation(x, z, seed, finalAmp);
+      };
+
       const positions = terrainGeo.attributes.position;
       for (let i = 0; i < positions.count; i++) {
         const x = positions.getX(i);
         const z = positions.getZ(i);
-        const y = getElevation(x, z, seed, tuningParams.elevation);
+        const y = getBlendedElevation(x, z, tuningParams.elevation);
         positions.setY(i, y);
       }
       terrainGeo.computeVertexNormals();
@@ -528,7 +581,7 @@ export const ThreeViewport = () => {
         const dist = 6 + pseudoRandom(itemSeed + 1) * 65;
         const x = Math.cos(angle) * dist;
         const z = Math.sin(angle) * dist;
-        const y = getElevation(x, z, seed, tuningParams.elevation);
+        const y = getBlendedElevation(x, z, tuningParams.elevation);
 
         let entity: THREE.Object3D | null = null;
         if (biome === 'pine') {
@@ -566,7 +619,7 @@ export const ThreeViewport = () => {
       const npcMesh = buildNpcCharacter(biome);
       const npcX = 3;
       const npcZ = 5;
-      const npcY = getElevation(npcX, npcZ, seed, tuningParams.elevation);
+      const npcY = getBlendedElevation(npcX, npcZ, tuningParams.elevation);
       npcMesh.position.set(npcX, npcY, npcZ);
       group.add(npcMesh);
       npcCharacterRef.current = npcMesh;
@@ -1844,6 +1897,15 @@ export const ThreeViewport = () => {
   // Key listeners for Walk Mode
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
+      // Toggle Circle Select
+      if (e.code === 'KeyC') {
+        const activeTag = document.activeElement?.tagName.toUpperCase();
+        if (activeTag !== 'INPUT' && activeTag !== 'TEXTAREA') {
+          setIsCircleSelectActive((prev) => !prev);
+          return;
+        }
+      }
+
       switch (e.code) {
         case 'KeyW':
         case 'ArrowUp':
@@ -2238,6 +2300,17 @@ export const ThreeViewport = () => {
 
       {/* Top Right Viewport Quick Control Overlay */}
       <div className="absolute top-3 right-3 flex items-center space-x-1.5 z-10 select-none">
+        <button
+          type="button"
+          onClick={() => setIsCircleSelectActive(!isCircleSelectActive)}
+          title="Toggle Circle Select (C)"
+          className={`px-2.5 py-1 rounded-md mac-subtle-blur border text-xs transition flex items-center space-x-1 cursor-pointer ${
+            isCircleSelectActive ? 'bg-blue-600/60 border-blue-400 text-white shadow-sm' : 'bg-black/60 border-white/10 text-white hover:bg-white/20'
+          }`}
+        >
+          <i className="ph ph-circle-dashed" />
+          <span>⭕ Select Area (C)</span>
+        </button>
         <button
           type="button"
           onClick={handleResetCamera}

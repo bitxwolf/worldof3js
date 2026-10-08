@@ -7,6 +7,7 @@ import { registerFileHandlers } from './ipc/file.handler';
 import { registerLLMHandlers } from './ipc/llm.handler';
 import { registerImageHandlers } from './ipc/image.handler';
 import { registerSettingsHandlers } from './ipc/settings.handler';
+import { registerOrchestratorHandlers } from './ipc/orchestrator.handler';
 
 // Global crash loggers for packaged production executable
 process.on('uncaughtException', (err) => console.error('[Fatal Error]', err));
@@ -64,6 +65,7 @@ function createWindow(): void {
   registerLLMHandlers(() => mainWindow);
   registerImageHandlers();
   registerSettingsHandlers();
+  registerOrchestratorHandlers(() => mainWindow);
 
   if (devServerUrl) {
     mainWindow.loadURL(devServerUrl);
