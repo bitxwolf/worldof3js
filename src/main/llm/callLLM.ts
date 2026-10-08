@@ -1,4 +1,4 @@
-import type { AgentId, GenerationMode } from '../../shared/agents/agentTypes';
+import type { AgentId } from '../../shared/agents/agentTypes';
 import type { ModelConfig, AgentModelConfig } from '../../shared/config/modelConfig';
 import { ModelNotConfiguredError } from '../../shared/config/modelConfig';
 import type { AppSettings } from '../../shared/ipc.types';
