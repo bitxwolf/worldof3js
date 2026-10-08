@@ -1,4 +1,5 @@
 import type { SceneGraph } from './schema/sceneGraph.schema';
+import type { WorldRequest, SelectionContext, OrchestratorProgressEvent, RegionElevation, ViewportBiomeType } from './agents/agentTypes';
 
 export type IPCSuccess<T> = {
   readonly success: true;
@@ -91,8 +92,7 @@ export interface ProcessedImage {
 }
 
 
-// Added for v2
-import type { WorldRequest, SelectionContext, OrchestratorProgressEvent, RegionElevation } from './agents/agentTypes';
+// ─── v2 Orchestrator & Graph Payloads ────────────────────────────────────────
 
 export interface OrchestratorGeneratePayload extends WorldRequest {}
 
@@ -117,8 +117,8 @@ export interface GraphQueryRadiusResult {
 }
 
 export interface CompiledWorldResult {
-  sceneGraph: import('./schema/sceneGraph.schema').SceneGraph;
-  activeBiome: import('./agents/agentTypes').ViewportBiomeType;
+  sceneGraph: SceneGraph;
+  activeBiome: ViewportBiomeType;
   regionElevations: RegionElevation[];
   sessionId: string;
 }
