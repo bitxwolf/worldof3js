@@ -89,7 +89,7 @@ export function generateStandaloneHtml(graph: SceneGraph & { code?: string }): s
     biome === 'urban' ? '0x334155' :
     biome === 'dungeon' ? '0x1e293b' :
     biome === 'tundra' ? '0xe2e8f0' :
-    biome === 'canyon' ? '0x9a3412' :
+    biome === 'ocean' ? '0x1e3a8a' :
     '0x3f3f46';
 
   return `<!DOCTYPE html>
@@ -114,6 +114,7 @@ export function generateStandaloneHtml(graph: SceneGraph & { code?: string }): s
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 </head>
 <body>
+  <canvas id="worldCanvas"></canvas>
   <div id="overlay">
     <h2>${escapeHtml(worldName)}</h2>
     <p>${escapeHtml(worldDesc)}</p>
@@ -137,12 +138,11 @@ export function generateStandaloneHtml(graph: SceneGraph & { code?: string }): s
     const startPos = graph.player?.spawn || graph.player?.startPosition || [0, 1.7, 5];
     camera.position.set(startPos[0], startPos[1] || 1.7, startPos[2]);
 
-    const renderer = new THREE.WebGLRenderer({ antialias: true });
-    renderer.domElement.id = 'worldCanvas';
+    const canvas = document.getElementById('worldCanvas');
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.shadowMap.enabled = true;
-    document.body.appendChild(renderer.domElement);
 
     // Ambient light
     const ambient = new THREE.AmbientLight(0xffffff, graph.atmosphere?.ambientIntensity || 0.6);

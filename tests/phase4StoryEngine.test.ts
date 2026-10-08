@@ -15,7 +15,7 @@ import { WorldBuilder } from '../src/renderer/engine/WorldBuilder';
 import { SceneManager } from '../src/renderer/engine/SceneManager';
 import { SavedWorldSchema, type SceneGraph, type EventTrigger } from '../src/shared/schema/sceneGraph.schema';
 import type { SavedWorld } from '../src/shared/ipc.types';
-import { generateStandaloneHtml, validateExportCode, EXPORT_BLOCKED_PATTERNS } from '../src/shared/exportHtml';
+import { generateStandaloneHtml, validateExportCode } from '../src/shared/exportHtml';
 
 describe('Phase 4: Story Engine — Comprehensive Verification', () => {
   beforeEach(() => {
@@ -757,7 +757,7 @@ Lyra whispered: "Follow me."
       expect(html).toContain('0x2d4a22'); // Forest ground plane color
       expect(html).toContain('Wanderer');
       expect(html).toContain('Welcome to the standalone world!');
-      expect(html).toContain('PointerLockControls');
+      expect(html).toContain('requestPointerLock');
       expect(html).toContain('crosshair');
     });
 

@@ -55,10 +55,10 @@ export const DocumentUploader = ({
           const filePath = res.data;
           const filename = filePath.split(/[/\\]/).pop() || 'document';
           const readRes = await window.electronAPI.readFile(filePath);
-          if (readRes.success && readRes.data) {
+          if (readRes.success) {
             await processTextContent(readRes.data, filename);
           } else {
-            const err = readRes.error?.message || 'Failed to read story document';
+            const err = readRes.error.message || 'Failed to read story document';
             setErrorMessage(err);
             showNotification(`File read error: ${err}`, 5000, 'warning');
           }
@@ -92,12 +92,12 @@ export const DocumentUploader = ({
 
         if (filePath && window.electronAPI?.readFile) {
           const res = await window.electronAPI.readFile(filePath);
-          if (res.success && res.data) {
+          if (res.success) {
             await processTextContent(res.data, file.name);
             return;
           }
           if (isPdf) {
-            const err = res.error?.message || 'Failed to extract text from PDF document';
+            const err = res.error.message || 'Failed to extract text from PDF document';
             setErrorMessage(err);
             showNotification(`PDF parse error: ${err}`, 5000, 'warning');
             return;

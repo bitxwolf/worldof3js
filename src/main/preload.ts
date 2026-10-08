@@ -1,4 +1,5 @@
-import { contextBridge, ipcRenderer, webUtils } from 'electron';
+import { contextBridge, ipcRenderer } from 'electron';
+import * as electron from 'electron';
 import { IPC_CHANNELS } from '../shared/constants';
 
 contextBridge.exposeInMainWorld('electronAPI', {
@@ -85,7 +86,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   webUtils: {
     getPathForFile: (file: File): string => {
       try {
-        return webUtils.getPathForFile(file);
+        const mod = electron as unknown as { webUtils?: { getPathForFile: (f: File) => string } };
+        if (mod.webUtils?.getPathForFile) {
+          return mod.webUtils.getPathForFile(file);
+        }
+        return (file as unknown as { path?: string }).path || '';
       } catch {
         return (file as unknown as { path?: string }).path || '';
       }
