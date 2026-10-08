@@ -28,12 +28,17 @@ export const IPC_CHANNELS = {
   APP_SAVE_SETTINGS: 'app:save-settings',
   APP_VERSION:       'app:version',
 
-  // Orchestrator & Graph
-  ORCHESTRATOR_START: 'orchestrator:start',
-  ORCHESTRATOR_PROGRESS: 'orchestrator:progress',
-  ORCHESTRATOR_CANCEL: 'orchestrator:cancel',
-  GRAPH_LOAD: 'graph:load',
-  GRAPH_UPDATE: 'graph:update',
+  // Orchestrator (v2 multi-agent pipeline)
+  ORCHESTRATOR_GENERATE:       'orchestrator:generate',
+  ORCHESTRATOR_EDIT_SELECTION: 'orchestrator:edit-selection',
+  ORCHESTRATOR_PROGRESS:       'orchestrator:progress',
+  ORCHESTRATOR_CANCEL:         'orchestrator:cancel',
+
+  // Graph queries
+  GRAPH_QUERY_RADIUS:    'graph:query-radius',
+  GRAPH_LIST_SESSIONS:   'graph:list-sessions',
+  GRAPH_LOAD_SESSION:    'graph:load-session',
+  GRAPH_DELETE_SESSION:  'graph:delete-session',
 } as const;
 
 export const LIMITS = {

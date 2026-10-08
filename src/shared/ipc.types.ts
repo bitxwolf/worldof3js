@@ -36,6 +36,8 @@ export interface AppSettings {
   anthropicModel?: string;
   openaiModelList?: string[];
   anthropicModelList?: string[];
+  agentModelOverrides?: import('./config/modelConfig').AgentModelConfig;
+  generationMode?: 'detailed' | 'quick';
 }
 
 export interface ParseWorldPayload {
@@ -86,4 +88,37 @@ export interface ProcessedImage {
   cleanBase64?: string;
   alphaBounds?: { minX: number; maxX: number; minY: number; maxY: number };
   aspectRatio?: number;
+}
+
+
+// Added for v2
+import type { WorldRequest, SelectionContext, OrchestratorProgressEvent, RegionElevation } from './agents/agentTypes';
+
+export interface OrchestratorGeneratePayload extends WorldRequest {}
+
+export interface OrchestratorEditPayload {
+  sessionId: string;
+  selection: SelectionContext;
+  updateRequest: string;
+}
+
+export interface OrchestratorProgressPayload extends OrchestratorProgressEvent {}
+
+export interface GraphQueryRadiusPayload {
+  sessionId: string;
+  x: number;
+  z: number;
+  radius: number;
+  types?: string[];
+}
+
+export interface GraphQueryRadiusResult {
+  nodes: Array<{ id: string; type: string; attrs: Record<string, unknown>; x: number; z: number }>;
+}
+
+export interface CompiledWorldResult {
+  sceneGraph: import('./schema/sceneGraph.schema').SceneGraph;
+  activeBiome: import('./agents/agentTypes').ViewportBiomeType;
+  regionElevations: RegionElevation[];
+  sessionId: string;
 }
