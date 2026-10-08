@@ -23,22 +23,29 @@ export class PresetRegistry {
     return this.catalog.has(id);
   }
 
+  getPreset(id: string): RawPresetData | undefined {
+    return this.getPresetData(id);
+  }
+
   getPresetData(id: string): RawPresetData | undefined {
-    return this.catalog.get(id);
+    const preset = this.catalog.get(id);
+    return preset ? structuredClone(preset) : undefined;
   }
 
   listPresets(category?: string): RawPresetData[] {
     const all = Array.from(this.catalog.values());
-    if (!category) return all;
-    return all.filter((p) => p.category.toLowerCase() === category.toLowerCase() || p.type.toLowerCase() === category.toLowerCase());
+    const filtered = !category
+      ? all
+      : all.filter((p) => p.category.toLowerCase() === category.toLowerCase() || p.type.toLowerCase() === category.toLowerCase());
+    return filtered.map((preset) => structuredClone(preset));
   }
 
   /**
    * Spawns a high-fidelity 3D preset instance ready for addition to any Three.js scene.
    */
   spawn(id: string, options?: PresetSpawnOptions): THREE.Group {
-    const data = this.catalog.get(id);
-    if (!data) {
+    const rawData = this.catalog.get(id);
+    if (!rawData) {
       console.warn(`[PresetRegistry] Preset "${id}" not found in catalog, using first available NPC or fallback`);
       const fallbackData = Array.from(this.catalog.values())[0];
       if (fallbackData) {
@@ -46,6 +53,8 @@ export class PresetRegistry {
       }
       throw new Error(`[PresetRegistry] No presets registered in catalog`);
     }
+
+    const data = structuredClone(rawData);
 
     const mergedOptions: PresetSpawnOptions = {
       registry: options?.registry || this.resourceRegistry,

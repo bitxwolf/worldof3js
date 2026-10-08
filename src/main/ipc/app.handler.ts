@@ -72,7 +72,16 @@ export function registerAppHandlers(): void {
           };
         }
 
-        const parseResult = AppSettingsSchema.partial().safeParse(settings);
+        const rawSettings =
+          typeof settings === 'object' && settings !== null
+            ? { ...(settings as Record<string, unknown>) }
+            : {};
+        const agentModelOverrides = rawSettings.agentModelOverrides;
+        const generationMode = rawSettings.generationMode;
+        delete rawSettings.agentModelOverrides;
+        delete rawSettings.generationMode;
+
+        const parseResult = AppSettingsSchema.partial().safeParse(rawSettings);
         if (!parseResult.success) {
           return {
             success: false,
@@ -80,7 +89,17 @@ export function registerAppHandlers(): void {
           };
         }
 
-        StoreService.setSettings(parseResult.data);
+        const dataToSave: Partial<AppSettings> = {
+          ...parseResult.data,
+        };
+        if (agentModelOverrides !== undefined && typeof agentModelOverrides === 'object') {
+          dataToSave.agentModelOverrides = agentModelOverrides as any;
+        }
+        if (generationMode !== undefined && typeof generationMode === 'string') {
+          dataToSave.generationMode = generationMode as any;
+        }
+
+        StoreService.setSettings(dataToSave);
         return { success: true, data: undefined };
       } catch (err: unknown) {
         const error = err instanceof Error ? err : new Error(String(err));

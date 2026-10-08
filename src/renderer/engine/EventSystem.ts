@@ -162,6 +162,7 @@ export class EventSystem {
         const char = graph?.characters?.find((c) => c.id === npcId);
         if (char) {
           useNPCStore.getState().setActiveNPC(char);
+          useNPCStore.getState().setDialogueOpen(true);
           document.exitPointerLock();
         }
         break;

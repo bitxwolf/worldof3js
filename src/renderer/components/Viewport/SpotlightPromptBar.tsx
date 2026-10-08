@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useUIStore } from '../../store/uiStore';
 import { useWorldStore } from '../../store/worldStore';
 import { useOrchestratorStore } from '../../store/orchestratorStore';
+import { transport } from '../../../shared/transport';
 
 const PROMPT_CHIPS = [
   'Pine Valley with Watchtower',
@@ -29,6 +30,7 @@ export const SpotlightPromptBar = () => {
   const triggerWorldGeneration = async (text: string) => {
     if (!text.trim() || isGenerating) return;
 
+    const api = window.electronAPI ?? transport;
     setGenerating(true, 'Initiating generation...');
     useWorldStore.getState().setCustomWorldActive(true);
 
@@ -44,7 +46,37 @@ export const SpotlightPromptBar = () => {
         useUIStore.getState().setActiveBiome(result.activeBiome);
         setSceneGraph(result.sceneGraph);
         showNotification('World generated successfully!', 3500, 'success');
+        return;
       }
+
+      // Fallback: If orchestrator returned null/unavailable, generate world via unified api (parseWorld)
+      if (api?.parseWorld) {
+        const { uploadedDocument, uploadedImages } = useWorldStore.getState();
+        const parseRes = await api.parseWorld({
+          text,
+          document: uploadedDocument ?? undefined,
+          images: uploadedImages.length > 0 ? uploadedImages.map((img) => ({
+            base64: img.base64,
+            mimeType: img.mimeType,
+            tag: img.tag as 'character' | 'scene' | 'texture',
+          })) : undefined,
+        });
+
+        if (parseRes.success && parseRes.data) {
+          setSceneGraph(parseRes.data);
+          if (api.generateCode) {
+            const codeRes = await api.generateCode(parseRes.data);
+            if (codeRes.success && codeRes.data) {
+              useWorldStore.getState().setGeneratedCode(codeRes.data);
+            }
+          }
+          showNotification('World generated successfully!', 3500, 'success');
+          return;
+        }
+      }
+
+      showNotification('Generation failed. Check API key in Settings.', 5000, 'error');
+      useWorldStore.getState().setCustomWorldActive(false);
     } catch (err: unknown) {
       console.warn('Generation failed:', err);
       showNotification('Unexpected generation error', 5000, 'error');

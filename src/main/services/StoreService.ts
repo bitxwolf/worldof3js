@@ -110,7 +110,7 @@ export const StoreService = {
         try {
           // Try to decrypt assuming it was encrypted and stored as base64
           const decrypted = safeStorage.decryptString(Buffer.from(stored, 'base64'));
-          if (decrypted && decrypted.trim()) {
+          if (decrypted && decrypted.trim() && !decrypted.includes('*')) {
             return decrypted.trim();
           }
         } catch {
@@ -118,7 +118,7 @@ export const StoreService = {
           // Fall back to the raw stored value.
         }
       }
-      if (stored && stored.trim()) return stored.trim();
+      if (stored && stored.trim() && !stored.includes('*')) return stored.trim();
     }
 
     // Fall back to in-memory initialApiKey or process.env if store is empty
@@ -131,10 +131,11 @@ export const StoreService = {
   },
 
   setApiKey: (key: string): void => {
-    let toStore = key;
-    if (key && isEncryptionAvailable()) {
+    if (!key || !key.trim() || key.includes('*')) return;
+    let toStore = key.trim();
+    if (toStore && isEncryptionAvailable()) {
       try {
-        toStore = safeStorage.encryptString(key).toString('base64');
+        toStore = safeStorage.encryptString(toStore).toString('base64');
       } catch (e) {
         console.warn('[StoreService] safeStorage encryption failed, storing raw:', e);
       }
@@ -148,14 +149,14 @@ export const StoreService = {
       if (isEncryptionAvailable()) {
         try {
           const decrypted = safeStorage.decryptString(Buffer.from(stored, 'base64'));
-          if (decrypted && decrypted.trim()) {
+          if (decrypted && decrypted.trim() && !decrypted.includes('*')) {
             return decrypted.trim();
           }
         } catch {
           // Fall back to raw stored
         }
       }
-      if (stored && stored.trim()) return stored.trim();
+      if (stored && stored.trim() && !stored.includes('*')) return stored.trim();
     }
 
     return (
@@ -166,10 +167,11 @@ export const StoreService = {
   },
 
   setOpenaiApiKey: (key: string): void => {
-    let toStore = key;
-    if (key && isEncryptionAvailable()) {
+    if (!key || !key.trim() || key.includes('*')) return;
+    let toStore = key.trim();
+    if (toStore && isEncryptionAvailable()) {
       try {
-        toStore = safeStorage.encryptString(key).toString('base64');
+        toStore = safeStorage.encryptString(toStore).toString('base64');
       } catch (e) {
         console.warn('[StoreService] safeStorage encryption failed for openaiApiKey:', e);
       }
@@ -183,14 +185,14 @@ export const StoreService = {
       if (isEncryptionAvailable()) {
         try {
           const decrypted = safeStorage.decryptString(Buffer.from(stored, 'base64'));
-          if (decrypted && decrypted.trim()) {
+          if (decrypted && decrypted.trim() && !decrypted.includes('*')) {
             return decrypted.trim();
           }
         } catch {
           // Fall back to raw stored
         }
       }
-      if (stored && stored.trim()) return stored.trim();
+      if (stored && stored.trim() && !stored.includes('*')) return stored.trim();
     }
 
     return (
@@ -201,10 +203,11 @@ export const StoreService = {
   },
 
   setAnthropicApiKey: (key: string): void => {
-    let toStore = key;
-    if (key && isEncryptionAvailable()) {
+    if (!key || !key.trim() || key.includes('*')) return;
+    let toStore = key.trim();
+    if (toStore && isEncryptionAvailable()) {
       try {
-        toStore = safeStorage.encryptString(key).toString('base64');
+        toStore = safeStorage.encryptString(toStore).toString('base64');
       } catch (e) {
         console.warn('[StoreService] safeStorage encryption failed for anthropicApiKey:', e);
       }
@@ -244,16 +247,26 @@ export const StoreService = {
   setSettings: (s: Partial<AppSettings>): void => {
     const toSave: Record<string, unknown> = { ...s };
 
+    const shouldPersistKey = (key: unknown): key is string => {
+      return typeof key === 'string' && key.trim().length > 0 && !key.includes('*');
+    };
+
     if (s.apiKey !== undefined) {
-      StoreService.setApiKey(s.apiKey);
+      if (shouldPersistKey(s.apiKey)) {
+        StoreService.setApiKey(s.apiKey);
+      }
       delete toSave.apiKey;
     }
     if (s.openaiApiKey !== undefined) {
-      StoreService.setOpenaiApiKey(s.openaiApiKey);
+      if (shouldPersistKey(s.openaiApiKey)) {
+        StoreService.setOpenaiApiKey(s.openaiApiKey);
+      }
       delete toSave.openaiApiKey;
     }
     if (s.anthropicApiKey !== undefined) {
-      StoreService.setAnthropicApiKey(s.anthropicApiKey);
+      if (shouldPersistKey(s.anthropicApiKey)) {
+        StoreService.setAnthropicApiKey(s.anthropicApiKey);
+      }
       delete toSave.anthropicApiKey;
     }
 

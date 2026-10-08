@@ -66,11 +66,11 @@ SCHEMA (output exactly this structure):
     }
   ],
   "skybox": {
-    "topColor": 0xRRGGBB,
-    "bottomColor": 0xRRGGBB
+    "topColor": "#RRGGBB",
+    "bottomColor": "#RRGGBB"
   },
   "atmosphere": {
-    "fogColor": 0xRRGGBB,
+    "fogColor": "#RRGGBB",
     "fogDensity": number (0.003-0.05),
     "ambientIntensity": number (0.1-1.0)
   },
@@ -95,13 +95,13 @@ OBJECT TYPE SPECIFICITY RULES (critical):
   GOOD: "type": "bloodstained_map", "description": "A leather-bound map stained with old blood, edges burned"
 
 ATMOSPHERE COLOR GUIDE:
-  forest+night:      fogColor=0x0a1020, fogDensity=0.025, skybox: top=0x0a0e1a bottom=0x1a2010
-  forest+dusk:       fogColor=0x804030, fogDensity=0.012
-  forest+fog:        fogColor=0x8090a0, fogDensity=0.022
-  desert+afternoon:  fogColor=0xd4b86a, fogDensity=0.006
-  dungeon:           fogColor=0x050508, fogDensity=0.035
-  ocean+clear:       fogColor=0x87ceeb, fogDensity=0.005
-  tundra+snow:       fogColor=0xe0e8f0, fogDensity=0.016
+  forest+night:      fogColor="#0a1020", fogDensity=0.025, skybox: top="#0a0e1a" bottom="#1a2010"
+  forest+dusk:       fogColor="#804030", fogDensity=0.012
+  forest+fog:        fogColor="#8090a0", fogDensity=0.022
+  desert+afternoon:  fogColor="#d4b86a", fogDensity=0.006
+  dungeon:           fogColor="#050508", fogDensity=0.035
+  ocean+clear:       fogColor="#87ceeb", fogDensity=0.005
+  tundra+snow:       fogColor="#e0e8f0", fogDensity=0.016
 
 LIGHTS:
   Always include: 1 ambient + 1 directional

@@ -94,6 +94,11 @@ export const SettingsModal = () => {
       setOpenaiStatus('error');
       return;
     }
+    if (openaiKey.includes('*')) {
+      setOpenaiError('Please enter a valid (unmasked) API key to fetch models.');
+      setOpenaiStatus('error');
+      return;
+    }
     setOpenaiStatus('loading');
     setOpenaiError('');
     const res = await (window.electronAPI?.fetchOpenAIModels
@@ -114,6 +119,11 @@ export const SettingsModal = () => {
   const fetchAnthropicModels = async () => {
     if (!anthropicKey) {
       setAnthropicError('Enter API key first.');
+      setAnthropicStatus('error');
+      return;
+    }
+    if (anthropicKey.includes('*')) {
+      setAnthropicError('Please enter a valid (unmasked) API key to fetch models.');
       setAnthropicStatus('error');
       return;
     }
@@ -143,20 +153,28 @@ export const SettingsModal = () => {
   };
 
   const handleSave = () => {
-    const payload = {
+    const payload: Partial<import('../../../shared/ipc.types').AppSettings> = {
       activeProvider,
       openaiBaseUrl,
-      openaiApiKey: openaiKey,
       openaiModel,
-      anthropicApiKey: anthropicKey,
       anthropicModel,
       quality,
       openaiModelList: openaiModels,
       anthropicModelList: anthropicModels,
-      apiKey: activeProvider === 'anthropic' ? anthropicKey : openaiKey,
       model: activeProvider === 'anthropic' ? anthropicModel : openaiModel,
       agentModelOverrides: agentOverrides,
     };
+
+    if (openaiKey && !openaiKey.includes('*') && openaiKey.trim()) {
+      payload.openaiApiKey = openaiKey.trim();
+    }
+    if (anthropicKey && !anthropicKey.includes('*') && anthropicKey.trim()) {
+      payload.anthropicApiKey = anthropicKey.trim();
+    }
+    const chosenKey = activeProvider === 'anthropic' ? anthropicKey : openaiKey;
+    if (chosenKey && !chosenKey.includes('*') && chosenKey.trim()) {
+      payload.apiKey = chosenKey.trim();
+    }
 
     if (window.electronAPI?.saveSettings) {
       window.electronAPI.saveSettings(payload);

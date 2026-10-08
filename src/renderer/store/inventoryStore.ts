@@ -37,13 +37,35 @@ export const useInventoryStore = create<InventoryState>((set, get) => ({
   },
 
   removeItem: (id) =>
-    set((state) => ({
-      items: state.items.filter((item) => item.id !== id),
-      selectedSlot:
-        state.selectedSlot !== null && state.items[state.selectedSlot]?.id === id
-          ? null
-          : state.selectedSlot,
-    })),
+    set((state) => {
+      const removedIndex = state.items.findIndex((item) => item.id === id);
+      if (removedIndex === -1) {
+        return state;
+      }
+
+      const newItems = state.items.filter((item) => item.id !== id);
+      let newSelectedSlot = state.selectedSlot;
+
+      if (newSelectedSlot !== null) {
+        if (removedIndex === newSelectedSlot) {
+          newSelectedSlot = null;
+        } else if (removedIndex < newSelectedSlot) {
+          newSelectedSlot -= 1;
+        }
+      }
+
+      if (
+        newSelectedSlot !== null &&
+        (newItems.length === 0 || newSelectedSlot >= newItems.length || newSelectedSlot < 0)
+      ) {
+        newSelectedSlot = null;
+      }
+
+      return {
+        items: newItems,
+        selectedSlot: newSelectedSlot,
+      };
+    }),
 
   selectSlot: (slot) =>
     set((state) => ({

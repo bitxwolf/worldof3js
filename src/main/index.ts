@@ -2,6 +2,7 @@ import { app, BrowserWindow, shell, session } from 'electron';
 import { join } from 'path';
 import { existsSync } from 'fs';
 import { resolve4 } from 'dns/promises';
+import * as net from 'net';
 import { registerAppHandlers } from './ipc/app.handler';
 import { registerFileHandlers } from './ipc/file.handler';
 import { registerLLMHandlers } from './ipc/llm.handler';
@@ -79,6 +80,11 @@ function createWindow(): void {
  * This runs in the main process as the authoritative DNS rebinding defense.
  */
 function isPrivateIP(ip: string): boolean {
+  if (ip === '::1') return true;
+  const ipLower = ip.toLowerCase();
+  if (ipLower.startsWith('fc') || ipLower.startsWith('fd')) return true; // fc00::/7
+  if (ipLower.startsWith('fe8') || ipLower.startsWith('fe9') || ipLower.startsWith('fea') || ipLower.startsWith('feb')) return true; // fe80::/10
+
   const parts = ip.split('.').map(Number);
   if (parts.length !== 4 || parts.some((p) => isNaN(p))) return true; // invalid = block
   const [o1, o2, , ] = parts;
@@ -125,6 +131,16 @@ function setupNetworkGuard(): void {
           return;
         }
 
+        if (net.isIP(host) !== 0) {
+          if (isPrivateIP(host)) {
+            console.warn(`[NetworkGuard] Blocked request to ${details.url} — private IP literal: ${host}`);
+            callback({ cancel: true });
+          } else {
+            callback({ cancel: false });
+          }
+          return;
+        }
+
         // For all other external requests: resolve hostname and check IP
         resolve4(host)
           .then((addresses) => {
@@ -137,8 +153,8 @@ function setupNetworkGuard(): void {
             }
           })
           .catch(() => {
-            // DNS resolution failed — allow the request (Chromium will handle the error)
-            callback({ cancel: false });
+            // DNS resolution failed — fail-closed
+            callback({ cancel: true });
           });
       } catch {
         callback({ cancel: false });

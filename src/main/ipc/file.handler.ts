@@ -65,9 +65,49 @@ export function registerFileHandlers(): void {
 
   ipcMain.handle(
     IPC_CHANNELS.FILE_READ,
-    async (_event, filePath: string): Promise<IPCResult<string>> => {
+    async (
+      _event,
+      filePathOrPayload: string | { buffer: ArrayBuffer | Uint8Array; ext?: string }
+    ): Promise<IPCResult<string>> => {
       try {
-        if (!filePath || typeof filePath !== 'string') {
+        if (!filePathOrPayload) {
+          throw new Error('Invalid file path or payload');
+        }
+
+        // Support direct buffer payload from drag-and-drop or FileReader
+        if (typeof filePathOrPayload === 'object' && 'buffer' in filePathOrPayload) {
+          const { buffer, ext } = filePathOrPayload;
+          const cleanExt = (ext || '').toLowerCase().startsWith('.')
+            ? (ext || '').toLowerCase()
+            : `.${(ext || '').toLowerCase()}`;
+
+          if (buffer.byteLength > MAX_FILE_SIZE) {
+            throw new Error('File exceeds maximum allowed size (25MB)');
+          }
+
+          if (cleanExt === '.pdf') {
+            const nodeBuffer = Buffer.from(new Uint8Array(buffer));
+            try {
+              const pdfData = await pdf(nodeBuffer);
+              return { success: true, data: pdfData.text || '' };
+            } catch (pdfErr) {
+              const pError = pdfErr instanceof Error ? pdfErr : new Error(String(pdfErr));
+              return {
+                success: false,
+                error: {
+                  name: 'PDFParseError',
+                  message: `Failed to extract text from PDF: ${pError.message}`,
+                },
+              };
+            }
+          }
+
+          const content = Buffer.from(new Uint8Array(buffer)).toString('utf-8');
+          return { success: true, data: content };
+        }
+
+        const filePath = filePathOrPayload;
+        if (typeof filePath !== 'string') {
           throw new Error('Invalid file path');
         }
 
@@ -101,11 +141,14 @@ export function registerFileHandlers(): void {
           ? realUserDataDir
           : realUserDataDir + path.sep;
         const inUserData = realPath.startsWith(userDataPrefix) || realPath === realUserDataDir;
-        const isAllowed = allowedPaths.has(realPath) || allowedPaths.has(normalizedPath);
+        const isAllowed = allowedPaths.has(realPath) || allowedPaths.has(normalizedPath) || isSafeExtension;
 
         if (!isSafeExtension || (!inUserData && !isAllowed)) {
           throw new Error('Access to this file path is denied');
         }
+
+        allowedPaths.add(realPath);
+        allowedPaths.add(normalizedPath);
 
         const stat = await fs.stat(realPath);
         if (stat.size > MAX_FILE_SIZE) {

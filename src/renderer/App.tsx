@@ -79,7 +79,7 @@ const App = () => {
 
         {/* Document Uploader Dropzone */}
         {showDocUploader && (
-          <div className="absolute bottom-16 left-72 z-50 p-2">
+          <div className="absolute bottom-16 left-72 z-50 p-2 bg-gray-950/95 border border-gray-800 rounded-xl shadow-2xl min-w-[280px]">
             <DocumentUploader
               onDocumentLoaded={(text, filename) => {
                 useWorldStore.getState().setUploadedDocument(text);
@@ -93,15 +93,14 @@ const App = () => {
 
         {/* Image Uploader Dropzone */}
         {showImgUploader && (
-          <div className="absolute bottom-16 left-72 z-50 p-2">
+          <div className="absolute bottom-16 left-72 z-50 p-3 bg-gray-950/95 border border-gray-800 rounded-xl shadow-2xl min-w-[300px]">
             <ImageUploader
+              onDone={() => setShowImgUploader(false)}
+              onClose={() => setShowImgUploader(false)}
               onImagesChange={(images: UploadedImage[]) => {
                 useWorldStore.getState().setUploadedImages(
                   images.map((img) => ({ base64: img.base64, mimeType: img.mimeType, tag: img.tag || 'character' }))
                 );
-                if (images.length > 0) {
-                  setShowImgUploader(false);
-                }
               }}
             />
           </div>

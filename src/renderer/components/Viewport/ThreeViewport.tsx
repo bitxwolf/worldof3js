@@ -22,6 +22,7 @@ import { presetRegistry } from '../../engine/presets/PresetRegistry';
 import { useInventoryStore } from '../../store/inventoryStore';
 import { EventSystem } from '../../engine/EventSystem';
 import type { SceneGraph } from '../../../shared/schema/sceneGraph.schema';
+import { transport } from '../../../shared/transport';
 
 // Simple deterministic pseudo-random function
 function pseudoRandom(seed: number): number {
@@ -89,10 +90,16 @@ export const ThreeViewport = () => {
   const scratchVec3Ref = useRef(new THREE.Vector3());
   const nearbyNPCNameRef = useRef<string | null>(null);
   const [nearbyNPCName, setNearbyNPCName] = useState<string | null>(null);
-  const [dialogueOpen, setDialogueOpen] = useState(false);
+  const dialogueOpen = useNPCStore((s) => s.dialogueOpen);
+  const setDialogueOpen = useNPCStore((s) => s.setDialogueOpen);
   const [streamingText, setStreamingText] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
   const streamCleanupRef = useRef<(() => void) | null>(null);
+
+  // NPC streaming lifecycle effect
+  useEffect(() => {
+    return () => { streamCleanupRef.current?.(); };
+  }, [activeNPC]);
 
   // Crosshair interaction state
   const [crosshairActive, setCrosshairActive] = useState(false);
@@ -1196,11 +1203,12 @@ export const ThreeViewport = () => {
       try {
         const renderer = rendererRef.current;
         const screenshot = renderer?.domElement.toDataURL('image/jpeg', 0.75);
-        const result = await window.electronAPI.updateWorld({
+        const payload = {
           currentGraph: useWorldStore.getState().sceneGraph!,
           updatePrompt: instruction,
           screenshot,
-        });
+        };
+        const result = await (window.electronAPI?.updateWorld ? window.electronAPI.updateWorld(payload) : transport.updateWorld(payload));
         if (result.success) {
           useWorldStore.getState().patchSceneGraph(result.data);
           window.dispatchEvent(new CustomEvent('engine:smart-edit-done', { detail: { success: true } }));
@@ -1787,6 +1795,8 @@ export const ThreeViewport = () => {
     const selectedObj = target as unknown as THREE.Object3D | undefined;
     if (selectedObj) {
       selectedObj.position.set(selectedNode.position[0], selectedNode.position[1], selectedNode.position[2]);
+      if ((selectedNode as any).rotation) selectedObj.rotation.set((selectedNode as any).rotation[0], (selectedNode as any).rotation[1], (selectedNode as any).rotation[2]);
+      if ((selectedNode as any).scale) selectedObj.scale.set((selectedNode as any).scale[0], (selectedNode as any).scale[1], (selectedNode as any).scale[2]);
       if (selectionBoxRef.current) {
         if ((selectedObj as THREE.Mesh).geometry || selectedObj.children.length > 0) {
           selectionBoxRef.current.setFromObject(selectedObj);
@@ -2231,6 +2241,7 @@ export const ThreeViewport = () => {
               (window.electronAPI.npcReply({
                 npcId: activeNPC.id,
                 playerMessage: msg,
+                dialogueHistory: useNPCStore.getState().dialogueHistory[activeNPC.id] || [],
                 character: {
                   name: activeNPC.name,
                   personality: activeNPC.personality,

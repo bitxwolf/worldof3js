@@ -455,6 +455,14 @@ async function extractContourFromCanvas(
   if (typeof document === 'undefined' || typeof Image === 'undefined') return null;
 
   return new Promise((resolve) => {
+    const timeoutId = setTimeout(() => {
+      resolve(null);
+    }, 4000);
+
+    const cleanup = () => {
+      clearTimeout(timeoutId);
+    };
+
     try {
       let dataUrl = input.trim();
       if (!dataUrl.startsWith('data:')) {
@@ -465,6 +473,7 @@ async function extractContourFromCanvas(
       img.crossOrigin = 'anonymous';
 
       img.onload = () => {
+        cleanup();
         try {
           const aspect = img.width > 0 && img.height > 0 ? img.width / img.height : 0.65;
           const canvas = document.createElement('canvas');
@@ -559,9 +568,13 @@ async function extractContourFromCanvas(
         }
       };
 
-      img.onerror = () => resolve(null);
+      img.onerror = () => {
+        cleanup();
+        resolve(null);
+      };
       img.src = dataUrl;
     } catch {
+      cleanup();
       resolve(null);
     }
   });

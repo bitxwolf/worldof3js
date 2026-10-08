@@ -17,7 +17,78 @@ interface SavedWorldEntry {
   data: SavedWorld;
 }
 
-const STORAGE_KEY = 'orbis_saved_worlds';
+export const STORAGE_KEY = 'orbis_saved_worlds';
+
+export const downscaleCanvasToThumbnail = (
+  canvas: HTMLCanvasElement,
+  maxWidth = 128,
+  maxHeight = 72,
+  quality = 0.6
+): string | undefined => {
+  try {
+    if (!canvas.width || !canvas.height) return undefined;
+    const ratio = Math.min(maxWidth / canvas.width, maxHeight / canvas.height, 1);
+    const targetWidth = Math.max(1, Math.round(canvas.width * ratio));
+    const targetHeight = Math.max(1, Math.round(canvas.height * ratio));
+
+    const thumbCanvas = document.createElement('canvas');
+    thumbCanvas.width = targetWidth;
+    thumbCanvas.height = targetHeight;
+    const ctx = thumbCanvas.getContext('2d');
+    if (!ctx) {
+      return canvas.toDataURL('image/jpeg', quality);
+    }
+    ctx.drawImage(canvas, 0, 0, targetWidth, targetHeight);
+    return thumbCanvas.toDataURL('image/jpeg', quality);
+  } catch {
+    return undefined;
+  }
+};
+
+export const compressThumbnail = (
+  dataUrl: string,
+  maxWidth = 128,
+  maxHeight = 72,
+  quality = 0.6
+): Promise<string> => {
+  return new Promise((resolve) => {
+    if (!dataUrl || !dataUrl.startsWith('data:image')) {
+      resolve(dataUrl);
+      return;
+    }
+    if (typeof Image === 'undefined' || typeof document === 'undefined') {
+      resolve(dataUrl);
+      return;
+    }
+    try {
+      const img = new Image();
+      img.onload = () => {
+        try {
+          const ratio = Math.min(maxWidth / img.width, maxHeight / img.height, 1);
+          const targetWidth = Math.max(1, Math.round(img.width * ratio));
+          const targetHeight = Math.max(1, Math.round(img.height * ratio));
+
+          const canvas = document.createElement('canvas');
+          canvas.width = targetWidth;
+          canvas.height = targetHeight;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) {
+            resolve(dataUrl);
+            return;
+          }
+          ctx.drawImage(img, 0, 0, targetWidth, targetHeight);
+          resolve(canvas.toDataURL('image/jpeg', quality));
+        } catch {
+          resolve(dataUrl);
+        }
+      };
+      img.onerror = () => resolve(dataUrl);
+      img.src = dataUrl;
+    } catch {
+      resolve(dataUrl);
+    }
+  });
+};
 
 export const WorldLibraryModal = () => {
   const { isLibraryOpen, closeLibrary, showNotification } = useUIStore();
@@ -49,7 +120,7 @@ export const WorldLibraryModal = () => {
     try {
       const canvas = document.getElementById('threeCanvas') as HTMLCanvasElement | null;
       if (canvas) {
-        return canvas.toDataURL('image/jpeg', 0.6);
+        return downscaleCanvasToThumbnail(canvas);
       }
     } catch {
       // ignore toDataURL errors
@@ -57,12 +128,49 @@ export const WorldLibraryModal = () => {
     return undefined;
   };
 
-  const persistSavedWorlds = (entries: SavedWorldEntry[]) => {
+  const persistSavedWorlds = (entries: SavedWorldEntry[]): boolean => {
     setSavedWorlds(entries);
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(entries));
-    } catch {
-      // ignore quota errors
+      return true;
+    } catch (err: unknown) {
+      const isQuota =
+        (err instanceof DOMException &&
+          (err.name === 'QuotaExceededError' ||
+            err.name === 'NS_ERROR_DOM_QUOTA_REACHED' ||
+            err.code === 22 ||
+            err.code === 1014)) ||
+        (err instanceof Error &&
+          (err.name === 'QuotaExceededError' ||
+            err.message.toLowerCase().includes('quota')));
+
+      if (isQuota) {
+        // Fallback: strip thumbnails from older entries to fit within quota
+        try {
+          const stripped = entries.map((e, idx) =>
+            idx === 0 ? e : { ...e, thumbnail: undefined }
+          );
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(stripped));
+          setSavedWorlds(stripped);
+          showNotification(
+            'Storage limit reached: saved world, but older thumbnails were pruned.',
+            4000,
+            'warning'
+          );
+          return true;
+        } catch {
+          showNotification(
+            'Storage quota exceeded! Unable to save world to local library. Please delete older saved worlds.',
+            5000,
+            'error'
+          );
+          return false;
+        }
+      } else {
+        const msg = err instanceof Error ? err.message : String(err);
+        showNotification(`Failed to save to local storage: ${msg}`, 4000, 'warning');
+        return false;
+      }
     }
   };
 
@@ -74,7 +182,8 @@ export const WorldLibraryModal = () => {
 
     try {
       setIsProcessing(true);
-      const thumbnail = getCanvasThumbnail();
+      const rawThumbnail = getCanvasThumbnail();
+      const thumbnail = rawThumbnail ? await compressThumbnail(rawThumbnail) : undefined;
       const liveFlags = useWorldStore.getState().flags || flags || {};
       const livePlayerPos = useWorldStore.getState().playerPosition || playerPosition || [0, 1.7, 0];
       const payload: SavedWorld = {

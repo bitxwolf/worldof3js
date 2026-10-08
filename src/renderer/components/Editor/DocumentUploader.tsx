@@ -12,6 +12,7 @@ export const DocumentUploader = ({
   disabled = false,
 }: DocumentUploaderProps) => {
   const [loading, setLoading] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
   const [loadedFile, setLoadedFile] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -91,40 +92,67 @@ export const DocumentUploader = ({
           (file as unknown as { path?: string }).path;
 
         if (filePath && window.electronAPI?.readFile) {
-          const res = await window.electronAPI.readFile(filePath);
-          if (res.success) {
-            await processTextContent(res.data, file.name);
-            return;
-          }
-          if (isPdf) {
-            const err = res.error.message || 'Failed to extract text from PDF document';
-            setErrorMessage(err);
-            showNotification(`PDF parse error: ${err}`, 5000, 'warning');
-            return;
+          try {
+            const res = await window.electronAPI.readFile(filePath);
+            if (res.success && res.data) {
+              await processTextContent(res.data, file.name);
+              return;
+            }
+          } catch {
+            // IPC read failed, fall through to FileReader fallback
           }
         }
 
+        // Browser mode or restricted IPC path access:
+        // For PDF: If running with Electron IPC, read buffer via FileReader and pass to readFile
         if (isPdf) {
+          if (window.electronAPI?.readFile) {
+            try {
+              const buffer = await new Promise<ArrayBuffer | null>((resolve) => {
+                const reader = new FileReader();
+                reader.onload = (e) => resolve(e.target?.result as ArrayBuffer);
+                reader.onerror = () => resolve(null);
+                reader.readAsArrayBuffer(file);
+              });
+              if (buffer) {
+                const res = await (window.electronAPI.readFile as any)({ buffer, ext: '.pdf' });
+                if (res.success && res.data) {
+                  await processTextContent(res.data, file.name);
+                  return;
+                }
+              }
+            } catch {
+              // fall through to warning
+            }
+          }
           setErrorMessage('PDF parsing in browser requires the desktop app. Please use .txt or .md files.');
-          showNotification('PDF extraction requires the Electron desktop app.', 4000, 'warning');
+          showNotification('PDF extraction requires the Electron desktop app. Please use .txt or .md files in browser.', 4000, 'warning');
           return;
         }
 
-        // Web fallback: FileReader for text files
-        const reader = new FileReader();
-        reader.onload = async (e) => {
-          const content = e.target?.result as string;
-          if (content) {
-            await processTextContent(content, file.name);
-          } else {
-            setErrorMessage('Empty file content');
-          }
-        };
-        reader.onerror = () => {
-          setErrorMessage('Failed to read file');
-          showNotification('FileReader failed to read the file.', 4000, 'warning');
-        };
-        reader.readAsText(file);
+        // Standard browser FileReader for text files (readAsText)
+        await new Promise<void>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = async (e) => {
+            try {
+              const content = e.target?.result as string;
+              if (content) {
+                await processTextContent(content, file.name);
+              } else {
+                setErrorMessage('Empty file content');
+              }
+              resolve();
+            } catch (err) {
+              reject(err);
+            }
+          };
+          reader.onerror = () => {
+            setErrorMessage('Failed to read file');
+            showNotification('FileReader failed to read the file.', 4000, 'warning');
+            resolve();
+          };
+          reader.readAsText(file);
+        });
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
         setErrorMessage(msg);
@@ -134,6 +162,21 @@ export const DocumentUploader = ({
       }
     },
     [processTextContent, showNotification]
+  );
+
+  const handleDrop = useCallback(
+    async (e: React.DragEvent<HTMLDivElement>) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setIsDragging(false);
+      if (disabled || loading) return;
+
+      const file = e.dataTransfer.files?.[0];
+      if (file) {
+        await handleFileInputChange(file);
+      }
+    },
+    [disabled, loading, handleFileInputChange]
   );
 
   return (
@@ -154,19 +197,39 @@ export const DocumentUploader = ({
 
       <div
         onClick={handleOpenClick}
+        onDragOver={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          if (!disabled) setIsDragging(true);
+        }}
+        onDragEnter={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          if (!disabled) setIsDragging(true);
+        }}
+        onDragLeave={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          setIsDragging(false);
+        }}
+        onDrop={handleDrop}
         className={`border border-dashed rounded-xl p-2.5 text-center cursor-pointer transition-colors ${
           disabled
             ? 'opacity-50 cursor-not-allowed border-gray-800'
+            : isDragging
+            ? 'border-indigo-500 bg-indigo-950/40 text-white'
             : errorMessage
             ? 'border-rose-800/80 hover:border-rose-600 bg-rose-950/20'
             : 'border-gray-800 hover:border-indigo-500/80 bg-gray-900/40'
         }`}
       >
         <div className="flex items-center justify-center gap-2 text-xs text-gray-400">
-          <span>{loading ? '⏳' : errorMessage ? '⚠️' : '📄'}</span>
+          <span>{loading ? '⏳' : isDragging ? '📥' : errorMessage ? '⚠️' : '📄'}</span>
           <span>
             {loading
               ? 'Reading document...'
+              : isDragging
+              ? 'Drop document here'
               : errorMessage
               ? 'Failed to load story (Click to retry)'
               : 'Upload Story (.txt, .md, .pdf)'}
@@ -180,6 +243,7 @@ export const DocumentUploader = ({
           onChange={(e) => {
             const file = e.target.files?.[0];
             if (file) handleFileInputChange(file);
+            e.target.value = '';
           }}
           className="hidden"
         />

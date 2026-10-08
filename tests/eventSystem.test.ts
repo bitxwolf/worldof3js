@@ -5,6 +5,11 @@ import { useInventoryStore } from '../src/renderer/store/inventoryStore';
 import { useWorldStore } from '../src/renderer/store/worldStore';
 import { useUIStore } from '../src/renderer/store/uiStore';
 import type { EventTrigger } from '../src/shared/schema/sceneGraph.schema';
+import {
+  compressThumbnail,
+  downscaleCanvasToThumbnail,
+  STORAGE_KEY,
+} from '../src/renderer/components/WorldLibrary/WorldLibraryModal';
 
 describe('InventoryStore', () => {
   beforeEach(() => {
@@ -41,6 +46,80 @@ describe('InventoryStore', () => {
     store.removeItem('potion');
     expect(useInventoryStore.getState().items.length).toBe(0);
     expect(useInventoryStore.getState().selectedSlot).toBeNull();
+  });
+
+  it('maintains index stability when removing item at index 0 while slot 2 is selected (Bug 14/18)', () => {
+    const store = useInventoryStore.getState();
+    store.addItem({ id: 'item_0', name: 'Item 0' });
+    store.addItem({ id: 'item_1', name: 'Item 1' });
+    store.addItem({ id: 'item_2', name: 'Item 2' });
+    store.addItem({ id: 'item_3', name: 'Item 3' });
+
+    // Select slot 2 (pointing to item_2)
+    store.selectSlot(2);
+    expect(useInventoryStore.getState().selectedSlot).toBe(2);
+    expect(useInventoryStore.getState().getSelectedItem()?.id).toBe('item_2');
+
+    // Remove item at index 0
+    store.removeItem('item_0');
+
+    // Items array shifted left: item_2 is now at index 1
+    const state = useInventoryStore.getState();
+    expect(state.items.length).toBe(3);
+    expect(state.selectedSlot).toBe(1);
+    expect(state.getSelectedItem()?.id).toBe('item_2');
+    expect(state.getSelectedItem()?.name).toBe('Item 2');
+  });
+
+  it('clears selectedSlot to null if the selected item itself is removed', () => {
+    const store = useInventoryStore.getState();
+    store.addItem({ id: 'item_0', name: 'Item 0' });
+    store.addItem({ id: 'item_1', name: 'Item 1' });
+    store.addItem({ id: 'item_2', name: 'Item 2' });
+
+    store.selectSlot(1);
+    expect(useInventoryStore.getState().selectedSlot).toBe(1);
+    expect(useInventoryStore.getState().getSelectedItem()?.id).toBe('item_1');
+
+    store.removeItem('item_1');
+    expect(useInventoryStore.getState().selectedSlot).toBeNull();
+    expect(useInventoryStore.getState().getSelectedItem()).toBeNull();
+  });
+
+  it('keeps selectedSlot unchanged when removing an item at an index after selectedSlot', () => {
+    const store = useInventoryStore.getState();
+    store.addItem({ id: 'item_0', name: 'Item 0' });
+    store.addItem({ id: 'item_1', name: 'Item 1' });
+    store.addItem({ id: 'item_2', name: 'Item 2' });
+
+    store.selectSlot(0);
+    expect(useInventoryStore.getState().selectedSlot).toBe(0);
+    expect(useInventoryStore.getState().getSelectedItem()?.id).toBe('item_0');
+
+    // Remove item_2 at index 2 (after selectedSlot 0)
+    store.removeItem('item_2');
+    expect(useInventoryStore.getState().selectedSlot).toBe(0);
+    expect(useInventoryStore.getState().getSelectedItem()?.id).toBe('item_0');
+  });
+
+  it('resets selectedSlot to null when inventory becomes empty or slot is out of bounds', () => {
+    const store = useInventoryStore.getState();
+    store.addItem({ id: 'single_item', name: 'Single Item' });
+    store.selectSlot(0);
+
+    store.removeItem('single_item');
+    expect(useInventoryStore.getState().items.length).toBe(0);
+    expect(useInventoryStore.getState().selectedSlot).toBeNull();
+  });
+
+  it('handles removing non-existent item gracefully without modifying selectedSlot', () => {
+    const store = useInventoryStore.getState();
+    store.addItem({ id: 'item_0', name: 'Item 0' });
+    store.selectSlot(0);
+
+    store.removeItem('does_not_exist');
+    expect(useInventoryStore.getState().items.length).toBe(1);
+    expect(useInventoryStore.getState().selectedSlot).toBe(0);
   });
 });
 
@@ -134,5 +213,24 @@ describe('EventSystem', () => {
 
     expect(useInventoryStore.getState().items.length).toBe(1);
     expect(useInventoryStore.getState().items[0].name).toBe('Star Sapphire');
+  });
+});
+
+describe('WorldLibraryModal Thumbnail Compression & Storage Quota', () => {
+  it('exports STORAGE_KEY as orbis_saved_worlds', () => {
+    expect(STORAGE_KEY).toBe('orbis_saved_worlds');
+  });
+
+  it('gracefully handles non-image or invalid strings in compressThumbnail', async () => {
+    const emptyResult = await compressThumbnail('');
+    expect(emptyResult).toBe('');
+
+    const textResult = await compressThumbnail('not-a-data-url');
+    expect(textResult).toBe('not-a-data-url');
+  });
+
+  it('handles downscaleCanvasToThumbnail for empty canvas dimensions', () => {
+    const dummyCanvas = { width: 0, height: 0 } as HTMLCanvasElement;
+    expect(downscaleCanvasToThumbnail(dummyCanvas)).toBeUndefined();
   });
 });

@@ -1,4 +1,5 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
+import { useWorldStore } from '../../store/worldStore';
 
 export type ImageTag = 'character' | 'scene' | 'texture';
 
@@ -9,8 +10,28 @@ export interface UploadedImage {
   preview: string;
 }
 
-export const ImageUploader = ({ onImagesChange }: { onImagesChange: (images: UploadedImage[]) => void }) => {
-  const [images, setImages] = useState<UploadedImage[]>([]);
+export interface ImageUploaderProps {
+  onImagesChange: (images: UploadedImage[]) => void;
+  onDone?: () => void;
+  onClose?: () => void;
+}
+
+export const ImageUploader = ({
+  onImagesChange,
+  onDone,
+  onClose,
+}: ImageUploaderProps) => {
+  const [images, setImages] = useState<UploadedImage[]>(() => {
+    const storeImages = useWorldStore.getState().uploadedImages || [];
+    return storeImages.map((img) => ({
+      base64: img.base64,
+      mimeType: img.mimeType,
+      tag: (img.tag as ImageTag) || 'character',
+      preview: img.base64.startsWith('data:')
+        ? img.base64
+        : `data:${img.mimeType || 'image/png'};base64,${img.base64}`,
+    }));
+  });
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const handleFiles = useCallback(
@@ -54,7 +75,7 @@ export const ImageUploader = ({ onImagesChange }: { onImagesChange: (images: Upl
 
   const handleRemove = useCallback(
     (index: number) => {
-      if (images[index]) {
+      if (images[index]?.preview?.startsWith('blob:')) {
         URL.revokeObjectURL(images[index].preview);
       }
       const updated = images.filter((_, i) => i !== index);
@@ -69,13 +90,36 @@ export const ImageUploader = ({ onImagesChange }: { onImagesChange: (images: Upl
 
   useEffect(() => {
     return () => {
-      imagesRef.current.forEach((img) => URL.revokeObjectURL(img.preview));
+      imagesRef.current.forEach((img) => {
+        if (img.preview?.startsWith('blob:')) {
+          URL.revokeObjectURL(img.preview);
+        }
+      });
     };
   }, []);
 
+  const handleDismiss = useCallback(() => {
+    if (onDone) {
+      onDone();
+    } else if (onClose) {
+      onClose();
+    }
+  }, [onDone, onClose]);
+
   return (
     <div className="space-y-3">
-      <label className="text-sm font-semibold text-gray-200">Upload Images</label>
+      <div className="flex items-center justify-between">
+        <label className="text-sm font-semibold text-gray-200">Upload Images</label>
+        {(onDone || onClose) && (
+          <button
+            type="button"
+            onClick={handleDismiss}
+            className="px-2.5 py-1 text-xs rounded bg-blue-600 hover:bg-blue-500 text-white font-medium transition cursor-pointer"
+          >
+            Done
+          </button>
+        )}
+      </div>
 
       <div
         onDragOver={(e) => e.preventDefault()}
@@ -110,6 +154,7 @@ export const ImageUploader = ({ onImagesChange }: { onImagesChange: (images: Upl
                 <option value="texture">🧱 Texture</option>
               </select>
               <button
+                type="button"
                 onClick={() => handleRemove(i)}
                 className="ml-auto text-gray-400 hover:text-red-400 text-xs"
               >
@@ -117,6 +162,17 @@ export const ImageUploader = ({ onImagesChange }: { onImagesChange: (images: Upl
               </button>
             </div>
           ))}
+          {(onDone || onClose) && (
+            <div className="flex justify-end pt-1">
+              <button
+                type="button"
+                onClick={handleDismiss}
+                className="w-full py-1.5 text-xs rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-medium transition cursor-pointer text-center"
+              >
+                Done
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>

@@ -47,8 +47,7 @@ export function validateExportCode(code: string | undefined): string {
     .replace(/\/\/.*$/gm, '')
     .replace(/\/\*[\s\S]*?\*\//g, '')
     .replace(/'(?:[^'\\]|\\.)*'/g, '""')
-    .replace(/"(?:[^"\\]|\\.)*"/g, '""')
-    .replace(/`(?:[^`\\]|\\.)*`/g, '""');
+    .replace(/"(?:[^"\\]|\\.)*"/g, '""');
 
   for (const pattern of EXPORT_BLOCKED_PATTERNS) {
     if (pattern.test(stripped)) {
@@ -207,7 +206,7 @@ export function generateStandaloneHtml(graph: SceneGraph & { code?: string }): s
         if (/^function\s*\(/.test(trimmed)) {
           return `(${trimmed.replace(/<\/script>/gi, '<\\/script>')})(scene, THREE, assets);`;
         }
-        return `(new Function('scene', 'THREE', 'assets', ${JSON.stringify(safeCode)}))(scene, THREE, assets);`;
+        return `((scene, THREE, assets) => {\n${safeCode.replace(/<\/script>/gi, '<\\/script>')}\n})(scene, THREE, assets);`;
       })()}
     } catch(e) {
       console.warn('Scene code execution error:', e);
