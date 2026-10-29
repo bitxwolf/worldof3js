@@ -1130,7 +1130,7 @@ export const ThreeViewport = () => {
       });
       renderer.info.reset();
       const after = renderer.info.memory;
-      console.info(`[VRAM GC] Disposed geometries, materials, and textures. Before: ${beforeGeo}G/${beforeTex}T → After: ${after.geometries}G/${after.textures}T`);
+      console.info('%s', `[VRAM GC] Disposed geometries, materials, and textures. Before: ${beforeGeo}G/${beforeTex}T → After: ${after.geometries}G/${after.textures}T`);
     };
     window.addEventListener('engine:gc-request', handleGC);
     return () => window.removeEventListener('engine:gc-request', handleGC);
