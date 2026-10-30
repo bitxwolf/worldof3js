@@ -6,8 +6,9 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFilter
 
 BRAIN_DIR = r"C:\Users\vantr\.gemini\antigravity\brain\31169f3a-aba0-43bd-bfa2-a299bfa605ea"
-ASSETS_DIR = r"c:\antigravity\world of 3js\assets\presets"
-OUT_TS = r"c:\antigravity\world of 3js\src\renderer\engine\presets\presetData.ts"
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ASSETS_DIR = os.path.join(REPO_ROOT, "assets", "presets")
+OUT_TS = os.path.join(REPO_ROOT, "src", "renderer", "engine", "presets", "presetData.ts")
 
 os.makedirs(ASSETS_DIR, exist_ok=True)
 os.makedirs(os.path.dirname(OUT_TS), exist_ok=True)
@@ -397,3 +398,21 @@ presets_output.append({
     "category": "Flora",
     "dominantColor": "#4ade80",
     "targetHeight": 0.85,
+    "depth": 0.35,
+    "description": "Dense clump of varied alpine grass blades with natural curved silhouettes.",
+    "albedoBase64": img_to_base64_png(grass_rgba),
+    "normalBase64": img_to_base64_png(grass_normal),
+    "contour": grass_c_pts
+})
+
+# Write the generated presets as a TypeScript module while preserving its runtime contract.
+with open(OUT_TS, "w", encoding="utf-8") as output_file:
+    output_file.write("export interface RawPresetData {\n")
+    output_file.write("  id: string;\n  name: string;\n  type: string;\n  category: string;\n")
+    output_file.write("  dominantColor: string;\n  targetHeight: number;\n  depth: number;\n")
+    output_file.write("  description: string;\n  albedoBase64: string;\n  normalBase64: string;\n  contour: number[][];\n")
+    output_file.write("}\n\n")
+    output_file.write("export const presetData = ")
+    json.dump(presets_output, output_file, indent=2)
+    output_file.write(" as const;\n\n")
+    output_file.write("export const PRESET_CATALOG: RawPresetData[] = presetData;\n")
