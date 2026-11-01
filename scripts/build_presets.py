@@ -1,13 +1,19 @@
 import os
 import base64
 import json
+import re
 import cv2
 import numpy as np
 from PIL import Image, ImageDraw, ImageFilter
 
-BRAIN_DIR = r"C:\Users\vantr\.gemini\antigravity\brain\31169f3a-aba0-43bd-bfa2-a299bfa605ea"
-ASSETS_DIR = r"c:\antigravity\world of 3js\assets\presets"
-OUT_TS = r"c:\antigravity\world of 3js\src\renderer\engine\presets\presetData.ts"
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# Set PRESET_SOURCE_DIR to the directory containing the source JPGs. By default,
+# source images are read from the repository's assets/preset_sources directory.
+PRESET_SOURCE_DIR = os.environ.get(
+    "PRESET_SOURCE_DIR", os.path.join(REPO_ROOT, "assets", "preset_sources")
+)
+ASSETS_DIR = os.path.join(REPO_ROOT, "assets", "presets")
+OUT_TS = os.path.join(REPO_ROOT, "src", "renderer", "engine", "presets", "presetData.ts")
 
 os.makedirs(ASSETS_DIR, exist_ok=True)
 os.makedirs(os.path.dirname(OUT_TS), exist_ok=True)
@@ -90,7 +96,7 @@ nano_banana_assets = [
         "name": "Cyborg Scout Lyra-9",
         "type": "npc",
         "category": "NPCs",
-        "file": os.path.join(BRAIN_DIR, "npc_cyber_cyborg_1791385944267.jpg"),
+        "file": os.path.join(PRESET_SOURCE_DIR, "npc_cyber_cyborg_1791385944267.jpg"),
         "dominantColor": "#06b6d4",
         "targetHeight": 1.85,
         "depth": 0.14,
@@ -101,7 +107,7 @@ nano_banana_assets = [
         "name": "Arcanist Elenya",
         "type": "npc",
         "category": "NPCs",
-        "file": os.path.join(BRAIN_DIR, "npc_arcane_mystic_1791385981154.jpg"),
+        "file": os.path.join(PRESET_SOURCE_DIR, "npc_arcane_mystic_1791385981154.jpg"),
         "dominantColor": "#3b82f6",
         "targetHeight": 1.80,
         "depth": 0.12,
@@ -112,7 +118,7 @@ nano_banana_assets = [
         "name": "Nomad Scavenger Kael",
         "type": "npc",
         "category": "NPCs",
-        "file": os.path.join(BRAIN_DIR, "npc_desert_scavenger_1791386028356.jpg"),
+        "file": os.path.join(PRESET_SOURCE_DIR, "npc_desert_scavenger_1791386028356.jpg"),
         "dominantColor": "#d97706",
         "targetHeight": 1.88,
         "depth": 0.15,
@@ -126,8 +132,7 @@ for item in nano_banana_assets:
     print(f"Processing Nano Banana image: {item['id']}")
     src_img = cv2.imread(item['file'])
     if src_img is None:
-        print(f"Failed to read {item['file']}")
-        continue
+        raise RuntimeError(f"Failed to read configured image {item['file']}; preset catalog was not updated")
 
     # Resize to standard 512x512
     src_img = cv2.resize(src_img, (512, 512), interpolation=cv2.INTER_AREA)
@@ -397,3 +402,48 @@ presets_output.append({
     "category": "Flora",
     "dominantColor": "#4ade80",
     "targetHeight": 0.85,
+    "depth": 0.35,
+    "description": "Dense clump of varied alpine grass blades with natural curved silhouettes.",
+    "albedoBase64": img_to_base64_png(grass_rgba),
+    "normalBase64": img_to_base64_png(grass_normal),
+    "contour": grass_c_pts
+})
+
+# Merge generated entries into the existing catalog; preserve entries this script does not generate.
+existing_presets = []
+if os.path.exists(OUT_TS):
+    with open(OUT_TS, "r", encoding="utf-8") as source_file:
+        existing_source = source_file.read()
+    declaration = re.search(
+        r"export const (?:presetData|PRESET_CATALOG)(?:\s*:\s*RawPresetData\[\])?\s*=",
+        existing_source,
+    )
+    if not declaration:
+        raise RuntimeError(f"Could not read existing preset catalog from {OUT_TS}; refusing to replace it")
+    json_start = declaration.end()
+    while json_start < len(existing_source) and existing_source[json_start].isspace():
+        json_start += 1
+    try:
+        existing_presets, json_end = json.JSONDecoder().raw_decode(existing_source, json_start)
+    except json.JSONDecodeError as error:
+        raise RuntimeError(f"Could not parse existing preset catalog in {OUT_TS}; refusing to replace it") from error
+    suffix = existing_source[json_end:]
+    if not re.match(r"\s*(?:as\s+const\s*)?;", suffix):
+        raise RuntimeError(f"Could not read existing preset catalog declaration in {OUT_TS}; refusing to replace it")
+
+generated_by_id = {preset["id"]: preset for preset in presets_output}
+merged_presets = [preset for preset in existing_presets if preset.get("id") not in generated_by_id]
+merged_presets.extend(generated_by_id.values())
+
+# Write the generated presets as a TypeScript module while preserving its runtime contract.
+with open(OUT_TS, "w", encoding="utf-8") as output_file:
+    output_file.write("export interface RawPresetData {\n")
+    output_file.write("  id: string;\n  name: string;\n  type: string;\n  category: string;\n")
+    output_file.write("  file?: string;\n")
+    output_file.write("  dominantColor: string;\n  targetHeight: number;\n  depth: number;\n")
+    output_file.write("  description: string;\n  albedoBase64: string;\n  normalBase64: string;\n  contour: [number, number][];\n")
+    output_file.write("}\n\n")
+    output_file.write("export const presetData: RawPresetData[] = ")
+    json.dump(merged_presets, output_file, indent=2)
+    output_file.write(";\n\n")
+    output_file.write("export const PRESET_CATALOG: RawPresetData[] = presetData;\n")
