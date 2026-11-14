@@ -119,7 +119,7 @@ export class NPCSystem {
       return group;
     } catch (err) {
       // Emergency fallback — always produces a visible mesh
-      console.error(`[NPCSystem] Critical failure spawning ${char.name}:`, err);
+      console.error('%s', `[NPCSystem] Critical failure spawning ${char.name}:`, err);
       const emergency = new THREE.Mesh(
         new THREE.SphereGeometry(0.5, 8, 8),
         new THREE.MeshStandardMaterial({ color: 0xff0000, emissive: 0x880000, emissiveIntensity: 0.5 }),
