@@ -93,7 +93,7 @@ export class NPCSystem {
           group.userData = { ...group.userData, ...customAvatar.userData, isCustomAvatar: true };
           console.info(`[NPCSystem] ✓ Custom avatar spawned for ${char.name}`);
         } catch (convErr) {
-          console.warn(`[NPCSystem] Portrait conversion failed for ${char.name}, using fallback humanoid:`, convErr);
+          console.warn('%s', `[NPCSystem] Portrait conversion failed for ${char.name}, using fallback humanoid:`, convErr);
           const fallback = createDefaultHumanoid();
           while (fallback.children.length > 0) {
             const child = fallback.children[0];
