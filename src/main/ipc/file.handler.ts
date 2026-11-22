@@ -115,15 +115,11 @@ export function registerFileHandlers(): void {
           throw new Error('Path traversal not allowed');
         }
 
-        const normalizedPath = path.resolve(filePath);
-        if (normalizedPath.includes('..')) {
-          throw new Error('Path traversal not allowed');
-        }
-
         const realPath = await fs.realpath(filePath);
         if (realPath.includes('..')) {
           throw new Error('Path traversal not allowed');
         }
+        const normalizedPath = path.resolve(realPath);
 
         let realUserDataDir: string;
         try {

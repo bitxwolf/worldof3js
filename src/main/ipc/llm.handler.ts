@@ -24,7 +24,7 @@ function safeHandle<TArgs, TReturn>(
       return { success: true, data };
     } catch (err: unknown) {
       const error = err instanceof Error ? err : new Error(String(err));
-      console.error(`[IPC ${channel}] Failure:`, error);
+      console.error('[IPC %s] Failure:', channel, error);
       return {
         success: false,
         error: { name: error.name, message: error.message },

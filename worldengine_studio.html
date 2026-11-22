@@ -1395,12 +1395,13 @@
       // Add user message bubble
       const userMsg = document.createElement('div');
       userMsg.className = "flex flex-col items-end self-end max-w-[90%]";
-      userMsg.innerHTML = `
-        <div class="text-[10px] text-mac-textMuted mb-0.5 px-1 font-medium">You</div>
-        <div class="bg-blue-600 rounded-2xl rounded-tr-none p-2.5 text-white text-[11px] leading-relaxed shadow-sm">
-          ${text}
-        </div>
-      `;
+      const userLabel = document.createElement('div');
+      userLabel.className = "text-[10px] text-mac-textMuted mb-0.5 px-1 font-medium";
+      userLabel.textContent = 'You';
+      const messageBubble = document.createElement('div');
+      messageBubble.className = "bg-blue-600 rounded-2xl rounded-tr-none p-2.5 text-white text-[11px] leading-relaxed shadow-sm";
+      messageBubble.textContent = text;
+      userMsg.append(userLabel, messageBubble);
       chatBox.appendChild(userMsg);
       input.value = '';
       chatBox.scrollTop = chatBox.scrollHeight;

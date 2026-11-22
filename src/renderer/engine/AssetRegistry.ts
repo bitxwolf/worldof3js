@@ -308,7 +308,7 @@ export class AssetRegistry {
         },
         undefined,
         (err) => {
-          console.error(`[AssetRegistry] Failed to load texture "${key}":`, err);
+          console.error('[AssetRegistry] Failed to load texture "%s":', key, err);
           reject(err);
         }
       );
