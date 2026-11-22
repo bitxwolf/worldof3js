@@ -42,12 +42,23 @@ export const EXPORT_BLOCKED_PATTERNS: ReadonlyArray<RegExp> = [
 export function validateExportCode(code: string | undefined): string {
   if (!code || typeof code !== 'string' || !code.trim()) return '';
 
-  // Strip string literals and comments before pattern matching
-  const stripped = code
+  // Strip comments before pattern matching
+  let stripped = code
     .replace(/\/\/.*$/gm, '')
-    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/\/\*[\s\S]*?\*\//g, '');
+
+  // Strip single/double-quoted string literals
+  stripped = stripped
     .replace(/'(?:[^'\\]|\\.)*'/g, '""')
     .replace(/"(?:[^"\\]|\\.)*"/g, '""');
+
+  // Strip template literals but KEEP interpolation expressions for security checks.
+  // Replace only the static parts (backticks and text) while retaining ${...} contents.
+  stripped = stripped.replace(/`(?:[^`\\$]|\\.|\$(?!\{))*`/g, '""'); // simple templates without interpolation
+  // For templates with interpolation: strip the template wrapper but keep expressions
+  stripped = stripped.replace(/`(?:[^`\\$]|\\.|\$(?!\{))*\$\{/g, '('); // opening: `...${  →  (
+  stripped = stripped.replace(/\}(?:[^`\\$]|\\.|\$(?!\{))*\$\{/g, ')('); // middle: }...${  →  )(
+  stripped = stripped.replace(/\}(?:[^`\\$]|\\.|\$(?!\{))*`/g, ')'); // closing: }...`  →  )
 
   for (const pattern of EXPORT_BLOCKED_PATTERNS) {
     if (pattern.test(stripped)) {

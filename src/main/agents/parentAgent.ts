@@ -30,7 +30,7 @@ const AGENT_RUNNERS: Record<string, () => Promise<AgentRunner>> = {
   dialogue:  async () => (await import('./dialogueAgent')).runDialogueAgent,
 };
 
-const PIPELINE: Array<{ id: AgentId; percent: number; sliceBuilder: (g: WorldGraph) => Record<string, unknown> }> = [
+const PIPELINE: Array<{ id: AgentId; percent: number; sliceBuilder: (g: WorldGraph, req?: WorldRequest) => Record<string, unknown> }> = [
   { id: 'story',     percent: 10,  sliceBuilder: buildStorySlice },
   { id: 'character', percent: 20,  sliceBuilder: buildCharacterSlice },
   { id: 'world',     percent: 35,  sliceBuilder: buildWorldSlice },
@@ -57,7 +57,7 @@ export class ParentAgent {
       this.emit(session.id, step.id, 'started', `Running ${step.id} agent…`, step.percent);
 
       const runner = await AGENT_RUNNERS[step.id]();
-      const slice = step.sliceBuilder(graph);
+      const slice = step.sliceBuilder(graph, request);
 
       let result: { nodes: GraphNodeRecord[]; edges: GraphEdgeRecord[] } | null = null;
       let lastConflicts: ConflictEntry[] = [];

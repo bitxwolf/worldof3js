@@ -6,6 +6,8 @@ import type { IGraphStore } from '../../shared/storage/IGraphStore';
 import type { GraphNodeRecord, GraphEdgeRecord, AgentRunRecord } from '../../shared/graph/graphTypes';
 import type { AgentId } from '../../shared/agents/agentTypes';
 
+import storySystemPrompt from './prompts/story.system.md?raw';
+
 const PROMPT_PATH = path.join(__dirname, 'prompts/story.system.md');
 
 export function makeNode(id: string, type: GraphNodeRecord['type'], attrs: unknown, agentId: AgentId, version = 1): GraphNodeRecord {
@@ -60,6 +62,7 @@ export async function runStoryAgent(params: {
   const result = await runChildAgent({
     agentId: 'story',
     sessionId: params.sessionId,
+    systemPrompt: storySystemPrompt,
     systemPromptPath: PROMPT_PATH,
     slice: params.slice,
     instructions: 'Generate the story and factions for this world. Return JSON matching the schema.',

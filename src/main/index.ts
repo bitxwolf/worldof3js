@@ -1,6 +1,7 @@
-import { app, BrowserWindow, shell, session } from 'electron';
+import { app, BrowserWindow, shell, session, protocol } from 'electron';
 import { join } from 'path';
 import { existsSync } from 'fs';
+import { readFile } from 'fs/promises';
 import { resolve4 } from 'dns/promises';
 import * as net from 'net';
 import { registerAppHandlers } from './ipc/app.handler';
@@ -9,6 +10,22 @@ import { registerLLMHandlers } from './ipc/llm.handler';
 import { registerImageHandlers } from './ipc/image.handler';
 import { registerSettingsHandlers } from './ipc/settings.handler';
 import { registerOrchestratorHandlers } from './ipc/orchestrator.handler';
+import { registerPolyforkHandlers } from './ipc/polyfork.handler';
+import { polyforkService } from './services/PolyforkService';
+
+// Register custom protocol polyfork:// for safe model streaming
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: 'polyfork',
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      corsEnabled: true,
+      stream: true,
+    },
+  },
+]);
 
 // Global crash loggers for packaged production executable
 process.on('uncaughtException', (err) => console.error('[Fatal Error]', err));
@@ -67,6 +84,7 @@ function createWindow(): void {
   registerImageHandlers();
   registerSettingsHandlers();
   registerOrchestratorHandlers(() => mainWindow);
+  registerPolyforkHandlers();
 
   if (devServerUrl) {
     mainWindow.loadURL(devServerUrl);
@@ -157,13 +175,46 @@ function setupNetworkGuard(): void {
             callback({ cancel: true });
           });
       } catch {
-        callback({ cancel: false });
+        // Anomalous URL parse failure — fail-closed
+        callback({ cancel: true });
       }
     }
   );
 }
 
 app.whenReady().then(() => {
+  // Handle polyfork:// protocol for streaming cached 3D models & clips
+  protocol.handle('polyfork', async (request) => {
+    try {
+      const parsed = new URL(request.url);
+      let filename = parsed.pathname.replace(/^\/+/, '');
+      if (!filename && parsed.hostname && parsed.hostname !== 'localhost') {
+        filename = parsed.hostname;
+      }
+      const resolved = polyforkService.resolveAssetPath(filename);
+      if (!existsSync(resolved)) {
+        return new Response('Asset not found', { status: 404 });
+      }
+
+      const buf = await readFile(resolved);
+      let mimeType = 'application/octet-stream';
+      if (resolved.endsWith('.glb')) mimeType = 'model/gltf-binary';
+      else if (resolved.endsWith('.png')) mimeType = 'image/png';
+      else if (resolved.endsWith('.json')) mimeType = 'application/json';
+
+      return new Response(buf, {
+        status: 200,
+        headers: {
+          'Content-Type': mimeType,
+          'Access-Control-Allow-Origin': '*',
+        },
+      });
+    } catch (err) {
+      console.warn('[polyfork protocol] Error streaming asset:', err);
+      return new Response('Internal error', { status: 500 });
+    }
+  });
+
   createWindow();
   setupNetworkGuard();
 

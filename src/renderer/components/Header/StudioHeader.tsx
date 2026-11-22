@@ -16,6 +16,7 @@ export const StudioHeader = () => {
     reseed,
     openSettings,
     openLibrary,
+    togglePolyfork,
     addIpcLog,
   } = useUIStore();
 
@@ -140,6 +141,16 @@ export const StudioHeader = () => {
         >
           <i className="ph ph-export" />
           <span>Export GLTF</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={togglePolyfork}
+          title="Polyfork Asset Library (Low-Poly 3D Models & Characters)"
+          className="px-2.5 py-1 rounded-md bg-purple-600/30 hover:bg-purple-600/50 text-xs font-medium text-purple-200 border border-purple-500/30 flex items-center space-x-1 transition shadow-sm active:scale-95"
+        >
+          <i className="ph ph-package text-purple-300" />
+          <span>Polyfork</span>
         </button>
 
         <button

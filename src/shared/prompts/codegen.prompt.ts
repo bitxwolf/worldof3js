@@ -33,6 +33,11 @@ FUNCTION SIGNATURE — output ONLY this function body:
 
 ASSETS.HELPERS API — use these for all standard objects:
 
+  assets.helpers.placeModel(assetId, x, z, options?)
+    options: { scale?: number, rotationY?: number, colorTint?: number }
+    Places a curated Polyfork low-poly model (e.g. 'polyfork:building_cottage_01', 'polyfork:wooden_crate', 'polyfork:cart', 'polyfork:medieval_watchtower').
+    Falls back gracefully to procedural geometry if the model is not cached.
+
   assets.helpers.createTree(x, z, options?)
     options: { type: 'deciduous'|'pine'|'dead'|'palm'|'willow', scale: number, colorShift: 0..1 }
     colorShift 0=green, 0.5=yellow/autumn, 1.0=orange/red

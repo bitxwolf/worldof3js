@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react';
-import { useUIStore, type BiomeType, type SceneHierarchyItem } from '../../store/uiStore';
+import { useUIStore, type BiomeType, type SceneHierarchyItem, type WeatherType } from '../../store/uiStore';
+import { useWorldStore } from '../../store/worldStore';
 
 interface BiomeDefinition {
   id: BiomeType;
@@ -65,6 +66,37 @@ const BIOMES: BiomeDefinition[] = [
   },
 ];
 
+const WEATHER_OPTIONS: { id: WeatherType; label: string; icon: string }[] = [
+  { id: 'clear', label: 'Clear', icon: 'ph-sun' },
+  { id: 'fog', label: 'Fog', icon: 'ph-cloud-fog' },
+  { id: 'rain', label: 'Rain', icon: 'ph-cloud-rain' },
+  { id: 'snow', label: 'Snow', icon: 'ph-snowflake' },
+  { id: 'storm', label: 'Storm', icon: 'ph-cloud-lightning' },
+];
+
+const ATMOSPHERIC_PRESETS = [
+  { id: 'Sunny Noon', label: 'Sunny Noon', icon: '☀️' },
+  { id: 'Golden Sunset', label: 'Golden Sunset', icon: '🌅' },
+  { id: 'Misty Morning', label: 'Misty Morning', icon: '🌫️' },
+  { id: 'Midnight Stars', label: 'Midnight Stars', icon: '🌌' },
+  { id: 'Stormy Night', label: 'Stormy Night', icon: '⛈️' },
+  { id: 'Winter Blizzard', label: 'Winter Blizzard', icon: '❄️' },
+];
+
+const SUN_COLOR_PRESETS = [
+  { name: 'High Noon', color: '#ffffff' },
+  { name: 'Golden Hour', color: '#f59e0b' },
+  { name: 'Dawn', color: '#ff7040' },
+  { name: 'Cyber Neon', color: '#f43f5e' },
+];
+
+const MOON_COLOR_PRESETS = [
+  { name: 'Silvery Blue', color: '#8ba2cc' },
+  { name: 'Pale Frost', color: '#d6e4ff' },
+  { name: 'Deep Midnight', color: '#4b6b94' },
+  { name: 'Blood Moon', color: '#ef4444' },
+];
+
 export const LeftSidebar = () => {
   const {
     leftSidebarOpen,
@@ -74,6 +106,15 @@ export const LeftSidebar = () => {
     setActiveBiome,
     tuningParams,
     setTuningParam,
+    weather,
+    setWeather,
+    setWeatherIntensity,
+    setWindSpeed,
+    sunlight,
+    setSunlight,
+    moonlight,
+    setMoonlight,
+    applyAtmosphericPreset,
     isNight,
     toggleDayNight,
     selectedNode,
@@ -354,6 +395,7 @@ export const LeftSidebar = () => {
                 <div
                   key={b.id}
                   onClick={() => {
+                    useWorldStore.getState().setCustomWorldActive(false);
                     setActiveBiome(b.id);
                     addIpcLog(`[PROCEDURAL:BIOME] Applied preset '${b.title}'`, 'warn');
                     showNotification(`Switched to ${b.title}`, 2000, 'info');
@@ -386,8 +428,346 @@ export const LeftSidebar = () => {
       {/* ── Tuning Sliders Tab Content ── */}
       {leftSidebarTab === 'tuning' && (
         <div className="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-4 text-xs">
-          <div className="text-[10px] uppercase font-bold tracking-wider text-mac-textMuted/70">
-            Noise & Generation Parameters
+          {/* Quick Atmospheric Presets */}
+          <div className="space-y-2">
+            <div className="text-[10px] uppercase font-bold tracking-wider text-mac-textMuted/70 flex items-center justify-between">
+              <span className="flex items-center space-x-1">
+                <i className="ph ph-sparkle text-amber-400" />
+                <span>Atmospheric Presets</span>
+              </span>
+            </div>
+            <div className="grid grid-cols-2 gap-1.5">
+              {ATMOSPHERIC_PRESETS.map((preset) => (
+                <button
+                  key={preset.id}
+                  type="button"
+                  onClick={() => applyAtmosphericPreset(preset.id)}
+                  className="px-2 py-1.5 rounded-md border border-white/10 bg-white/5 hover:bg-white/10 hover:border-white/20 text-left transition flex items-center space-x-1.5 cursor-pointer"
+                >
+                  <span className="text-sm">{preset.icon}</span>
+                  <span className="text-[11px] font-medium text-white truncate">{preset.label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Weather & Atmosphere */}
+          <div className="p-3 rounded-lg border border-white/10 bg-white/5 space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="font-semibold text-white flex items-center space-x-1.5">
+                <i className="ph ph-cloud-rain text-blue-400 text-base" />
+                <span>Weather & Atmosphere</span>
+              </span>
+              <span className="text-[10px] uppercase font-mono px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300 border border-blue-500/30">
+                {weather.type}
+              </span>
+            </div>
+
+            {/* Weather Mode Selector Pills */}
+            <div className="grid grid-cols-5 gap-1">
+              {WEATHER_OPTIONS.map((opt) => {
+                const isActive = weather.type === opt.id;
+                return (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    onClick={() => setWeather(opt.id)}
+                    title={opt.label}
+                    className={`py-1.5 rounded flex flex-col items-center justify-center transition cursor-pointer ${
+                      isActive
+                        ? 'bg-blue-600 text-white shadow-sm border border-blue-400'
+                        : 'bg-black/30 hover:bg-white/10 text-mac-textMuted hover:text-white border border-white/5'
+                    }`}
+                  >
+                    <i className={`ph ${opt.icon} text-sm mb-0.5`} />
+                    <span className="text-[9px] font-medium">{opt.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Precipitation Intensity Slider */}
+            <div className="space-y-1">
+              <div className="flex justify-between">
+                <span className="text-mac-textMuted">Precipitation Intensity</span>
+                <span className="font-mono text-white">{Math.round(weather.intensity * 100)}%</span>
+              </div>
+              <input
+                type="range"
+                min="0"
+                max="1"
+                step="0.05"
+                value={weather.intensity}
+                onChange={(e) => setWeatherIntensity(parseFloat(e.target.value))}
+                className="w-full h-1 bg-white/20 rounded-lg appearance-none cursor-pointer accent-blue-500"
+              />
+            </div>
+
+            {/* Wind Speed Slider */}
+            <div className="space-y-1">
+              <div className="flex justify-between">
+                <span className="text-mac-textMuted">Wind Speed</span>
+                <span className="font-mono text-white">{weather.windSpeed > 0 ? `+${weather.windSpeed.toFixed(1)}` : weather.windSpeed.toFixed(1)} m/s</span>
+              </div>
+              <input
+                type="range"
+                min="-10"
+                max="10"
+                step="0.5"
+                value={weather.windSpeed}
+                onChange={(e) => setWindSpeed(parseFloat(e.target.value))}
+                className="w-full h-1 bg-white/20 rounded-lg appearance-none cursor-pointer accent-blue-500"
+              />
+            </div>
+
+            {/* Atmospheric Fog Density Slider */}
+            <div className="space-y-1">
+              <div className="flex justify-between">
+                <span className="text-mac-textMuted">Atmospheric Fog Density</span>
+                <span className="font-mono text-white">{tuningParams.fogDensity.toFixed(3)}</span>
+              </div>
+              <input
+                type="range"
+                min="0.002"
+                max="0.04"
+                step="0.002"
+                value={tuningParams.fogDensity}
+                onChange={(e) => setTuningParam('fogDensity', parseFloat(e.target.value))}
+                className="w-full h-1 bg-white/20 rounded-lg appearance-none cursor-pointer accent-blue-500"
+              />
+            </div>
+          </div>
+
+          {/* Time of Day: Day / Night Shift */}
+          <div className="p-3 rounded-lg border border-white/10 bg-white/5 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="font-semibold text-white flex items-center space-x-1.5">
+                <i className={`ph ${isNight ? 'ph-moon text-indigo-400' : 'ph-sun text-amber-400'} text-base`} />
+                <span>Time of Day</span>
+              </span>
+              <button
+                type="button"
+                onClick={toggleDayNight}
+                className={`px-2.5 py-1 rounded-md text-xs font-medium transition flex items-center space-x-1.5 cursor-pointer ${
+                  isNight
+                    ? 'bg-indigo-600 text-white hover:bg-indigo-500 shadow-sm'
+                    : 'bg-amber-500/20 text-amber-300 border border-amber-500/30 hover:bg-amber-500/30'
+                }`}
+              >
+                <i className={`ph ${isNight ? 'ph-sun' : 'ph-moon'}`} />
+                <span>{isNight ? 'Shift to Day' : 'Shift to Night'}</span>
+              </button>
+            </div>
+            <div className="text-[11px] text-mac-textMuted flex items-center justify-between">
+              <span>{isNight ? 'Night mode: Moon & starfield' : 'Day mode: Default Sun & shadows'}</span>
+              <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-black/40 text-mac-textMuted border border-white/5">Key: N</span>
+            </div>
+          </div>
+
+          {/* Sunlight Controls */}
+          <div className="p-3 rounded-lg border border-white/10 bg-white/5 space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="font-semibold text-white flex items-center space-x-1.5">
+                <i className="ph ph-sun text-amber-400 text-base" />
+                <span>Sunlight Controls</span>
+              </span>
+              <span className={`text-[10px] px-1.5 py-0.5 rounded font-mono ${!isNight ? 'bg-amber-500/20 text-amber-300' : 'bg-white/5 text-mac-textMuted'}`}>
+                {!isNight ? 'Active' : 'Dormant'}
+              </span>
+            </div>
+
+            {/* Sun Elevation */}
+            <div className="space-y-1">
+              <div className="flex justify-between">
+                <span className="text-mac-textMuted">Sun Elevation (Altitude)</span>
+                <span className="font-mono text-white">{sunlight.elevation}°</span>
+              </div>
+              <input
+                type="range"
+                min="5"
+                max="90"
+                step="1"
+                value={sunlight.elevation}
+                onChange={(e) => setSunlight({ elevation: parseFloat(e.target.value) })}
+                className="w-full h-1 bg-white/20 rounded-lg appearance-none cursor-pointer accent-amber-500"
+              />
+            </div>
+
+            {/* Sun Azimuth */}
+            <div className="space-y-1">
+              <div className="flex justify-between">
+                <span className="text-mac-textMuted">Sun Azimuth (Compass)</span>
+                <span className="font-mono text-white">{sunlight.azimuth}°</span>
+              </div>
+              <input
+                type="range"
+                min="0"
+                max="360"
+                step="5"
+                value={sunlight.azimuth}
+                onChange={(e) => setSunlight({ azimuth: parseFloat(e.target.value) })}
+                className="w-full h-1 bg-white/20 rounded-lg appearance-none cursor-pointer accent-amber-500"
+              />
+            </div>
+
+            {/* Sun Intensity */}
+            <div className="space-y-1">
+              <div className="flex justify-between">
+                <span className="text-mac-textMuted">Sun Intensity</span>
+                <span className="font-mono text-white">{sunlight.intensity.toFixed(2)}x</span>
+              </div>
+              <input
+                type="range"
+                min="0.1"
+                max="3.0"
+                step="0.05"
+                value={sunlight.intensity}
+                onChange={(e) => setSunlight({ intensity: parseFloat(e.target.value) })}
+                className="w-full h-1 bg-white/20 rounded-lg appearance-none cursor-pointer accent-amber-500"
+              />
+            </div>
+
+            {/* Sun Color Swatches */}
+            <div className="space-y-1.5">
+              <div className="flex justify-between items-center">
+                <span className="text-mac-textMuted">Sun Light Tint</span>
+                <div className="flex items-center space-x-1.5">
+                  <span className="w-3.5 h-3.5 rounded-full border border-white/20" style={{ backgroundColor: sunlight.color }} />
+                  <span className="font-mono text-white text-[10px] uppercase">{sunlight.color}</span>
+                </div>
+              </div>
+              <div className="grid grid-cols-4 gap-1">
+                {SUN_COLOR_PRESETS.map((swatch) => (
+                  <button
+                    key={swatch.name}
+                    type="button"
+                    onClick={() => setSunlight({ color: swatch.color })}
+                    className={`py-1 px-1.5 rounded text-[10px] border flex items-center justify-center space-x-1 cursor-pointer transition ${
+                      sunlight.color.toLowerCase() === swatch.color.toLowerCase()
+                        ? 'border-amber-400 bg-amber-500/20 text-white'
+                        : 'border-white/5 bg-black/30 hover:bg-white/10 text-mac-textMuted hover:text-white'
+                    }`}
+                  >
+                    <span className="w-2 h-2 rounded-full" style={{ backgroundColor: swatch.color }} />
+                    <span className="truncate">{swatch.name}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Moonlight Controls */}
+          <div className="p-3 rounded-lg border border-white/10 bg-white/5 space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="font-semibold text-white flex items-center space-x-1.5">
+                <i className="ph ph-moon text-indigo-400 text-base" />
+                <span>Moonlight & Night Sky</span>
+              </span>
+              <span className={`text-[10px] px-1.5 py-0.5 rounded font-mono ${isNight ? 'bg-indigo-500/20 text-indigo-300' : 'bg-white/5 text-mac-textMuted'}`}>
+                {isNight ? 'Active' : 'Dormant'}
+              </span>
+            </div>
+
+            {/* Moon Elevation */}
+            <div className="space-y-1">
+              <div className="flex justify-between">
+                <span className="text-mac-textMuted">Moon Elevation</span>
+                <span className="font-mono text-white">{moonlight.elevation}°</span>
+              </div>
+              <input
+                type="range"
+                min="5"
+                max="90"
+                step="1"
+                value={moonlight.elevation}
+                onChange={(e) => setMoonlight({ elevation: parseFloat(e.target.value) })}
+                className="w-full h-1 bg-white/20 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+              />
+            </div>
+
+            {/* Moon Azimuth */}
+            <div className="space-y-1">
+              <div className="flex justify-between">
+                <span className="text-mac-textMuted">Moon Azimuth</span>
+                <span className="font-mono text-white">{moonlight.azimuth}°</span>
+              </div>
+              <input
+                type="range"
+                min="0"
+                max="360"
+                step="5"
+                value={moonlight.azimuth}
+                onChange={(e) => setMoonlight({ azimuth: parseFloat(e.target.value) })}
+                className="w-full h-1 bg-white/20 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+              />
+            </div>
+
+            {/* Moon Intensity */}
+            <div className="space-y-1">
+              <div className="flex justify-between">
+                <span className="text-mac-textMuted">Moonlight Intensity</span>
+                <span className="font-mono text-white">{moonlight.intensity.toFixed(2)}x</span>
+              </div>
+              <input
+                type="range"
+                min="0.05"
+                max="1.5"
+                step="0.05"
+                value={moonlight.intensity}
+                onChange={(e) => setMoonlight({ intensity: parseFloat(e.target.value) })}
+                className="w-full h-1 bg-white/20 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+              />
+            </div>
+
+            {/* Starfield Density */}
+            <div className="space-y-1">
+              <div className="flex justify-between">
+                <span className="text-mac-textMuted">Starfield Brightness</span>
+                <span className="font-mono text-white">{Math.round(moonlight.starDensity * 100)}%</span>
+              </div>
+              <input
+                type="range"
+                min="0"
+                max="1"
+                step="0.05"
+                value={moonlight.starDensity}
+                onChange={(e) => setMoonlight({ starDensity: parseFloat(e.target.value) })}
+                className="w-full h-1 bg-white/20 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+              />
+            </div>
+
+            {/* Moon Tint Swatches */}
+            <div className="space-y-1.5">
+              <div className="flex justify-between items-center">
+                <span className="text-mac-textMuted">Lunar Tint</span>
+                <div className="flex items-center space-x-1.5">
+                  <span className="w-3.5 h-3.5 rounded-full border border-white/20" style={{ backgroundColor: moonlight.color }} />
+                  <span className="font-mono text-white text-[10px] uppercase">{moonlight.color}</span>
+                </div>
+              </div>
+              <div className="grid grid-cols-4 gap-1">
+                {MOON_COLOR_PRESETS.map((swatch) => (
+                  <button
+                    key={swatch.name}
+                    type="button"
+                    onClick={() => setMoonlight({ color: swatch.color })}
+                    className={`py-1 px-1.5 rounded text-[10px] border flex items-center justify-center space-x-1 cursor-pointer transition ${
+                      moonlight.color.toLowerCase() === swatch.color.toLowerCase()
+                        ? 'border-indigo-400 bg-indigo-500/20 text-white'
+                        : 'border-white/5 bg-black/30 hover:bg-white/10 text-mac-textMuted hover:text-white'
+                    }`}
+                  >
+                    <span className="w-2 h-2 rounded-full" style={{ backgroundColor: swatch.color }} />
+                    <span className="truncate">{swatch.name}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Noise & Procedural Parameters */}
+          <div className="text-[10px] uppercase font-bold tracking-wider text-mac-textMuted/70 pt-2">
+            Noise & Procedural Parameters
           </div>
 
           <div className="space-y-1">
@@ -424,49 +804,7 @@ export const LeftSidebar = () => {
 
           <div className="space-y-1">
             <div className="flex justify-between">
-              <span className="text-mac-textMuted">Atmospheric Fog Density</span>
-              <span className="font-mono text-white">{tuningParams.fogDensity.toFixed(3)}</span>
-            </div>
-            <input
-              type="range"
-              min="0.002"
-              max="0.04"
-              step="0.002"
-              value={tuningParams.fogDensity}
-              onChange={(e) => setTuningParam('fogDensity', parseFloat(e.target.value))}
-              className="w-full h-1 bg-white/20 rounded-lg appearance-none cursor-pointer accent-blue-500"
-            />
-          </div>
-
-          {/* Time of Day: Day / Night Shift */}
-          <div className="p-3 rounded-lg border border-white/10 bg-white/5 space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="font-semibold text-white flex items-center space-x-1.5">
-                <i className={`ph ${isNight ? 'ph-moon text-indigo-400' : 'ph-sun text-amber-400'} text-base`} />
-                <span>Time of Day</span>
-              </span>
-              <button
-                type="button"
-                onClick={toggleDayNight}
-                className={`px-2.5 py-1 rounded-md text-xs font-medium transition flex items-center space-x-1.5 cursor-pointer ${
-                  isNight
-                    ? 'bg-indigo-600 text-white hover:bg-indigo-500 shadow-sm'
-                    : 'bg-amber-500/20 text-amber-300 border border-amber-500/30 hover:bg-amber-500/30'
-                }`}
-              >
-                <i className={`ph ${isNight ? 'ph-sun' : 'ph-moon'}`} />
-                <span>{isNight ? 'Shift to Day' : 'Shift to Night'}</span>
-              </button>
-            </div>
-            <div className="text-[11px] text-mac-textMuted flex items-center justify-between">
-              <span>{isNight ? 'Night mode: Moon & starfield' : 'Day mode: Default Sun & shadows'}</span>
-              <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-black/40 text-mac-textMuted border border-white/5">Key: N</span>
-            </div>
-          </div>
-
-          <div className="space-y-1">
-            <div className="flex justify-between">
-              <span className="text-mac-textMuted">Sun Angle (Time of Day)</span>
+              <span className="text-mac-textMuted">Sun Angle (Legacy Slider)</span>
               <span className="font-mono text-white">{tuningParams.sunAngle}°</span>
             </div>
             <input
@@ -475,13 +813,17 @@ export const LeftSidebar = () => {
               max="170"
               step="5"
               value={tuningParams.sunAngle}
-              onChange={(e) => setTuningParam('sunAngle', parseFloat(e.target.value))}
+              onChange={(e) => {
+                const val = parseFloat(e.target.value);
+                setTuningParam('sunAngle', val);
+                setSunlight({ elevation: val });
+              }}
               className="w-full h-1 bg-white/20 rounded-lg appearance-none cursor-pointer accent-blue-500"
             />
           </div>
 
           <div className="p-2.5 rounded bg-blue-500/10 border border-blue-500/20 text-blue-300 text-[11px] leading-relaxed">
-            <i className="ph ph-info mr-1" /> Changes regenerate GPU buffer geometries on the fly using zero-leak mesh recycling.
+            <i className="ph ph-info mr-1" /> Dynamic weather, dual-axis sunlight, and moonlight simulate atmospheric radiance in real-time.
           </div>
         </div>
       )}

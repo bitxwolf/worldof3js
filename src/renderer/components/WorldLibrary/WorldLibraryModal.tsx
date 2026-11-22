@@ -134,6 +134,7 @@ export const WorldLibraryModal = () => {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(entries));
       return true;
     } catch (err: unknown) {
+      useUIStore.getState().showNotification('Storage full — some worlds may not be saved. Consider exporting important worlds.', 5000, 'warning');
       const isQuota =
         (err instanceof DOMException &&
           (err.name === 'QuotaExceededError' ||
@@ -241,6 +242,7 @@ export const WorldLibraryModal = () => {
     try {
       const worldData = entry.data;
       setSceneGraph(worldData.sceneGraph);
+      useWorldStore.getState().setCustomWorldActive(true);
       setGeneratedCode(worldData.generatedCode ?? null);
       if (worldData.flags) {
         Object.entries(worldData.flags).forEach(([k, v]) => {

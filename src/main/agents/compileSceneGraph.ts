@@ -114,7 +114,9 @@ export function compileSceneGraph(graph: WorldGraph, sessionId: string): Compile
       behavior: 'idle',
       dialogueSeed: attrs.motivation.slice(0, 100),
       secrets: [],
-      knowledge: [attrs.arcSummary]
+      knowledge: [attrs.arcSummary],
+      modelId: 'polyfork:hero',
+      rigged: true,
     });
   }
 
@@ -130,6 +132,13 @@ export function compileSceneGraph(graph: WorldGraph, sessionId: string): Compile
       }
     }
 
+    const defaultNpcModel =
+      attrs.type === 'guard'
+        ? 'polyfork:guard'
+        : attrs.type === 'vendor'
+        ? 'polyfork:merchant'
+        : 'polyfork:peasant';
+
     characters.push({
       id: npc.id,
       name: attrs.name,
@@ -139,7 +148,9 @@ export function compileSceneGraph(graph: WorldGraph, sessionId: string): Compile
       behavior: ((attrs.type as string) === 'patrol' || attrs.type === 'guard') ? 'patrol' : 'wander',
       dialogueSeed,
       secrets: [],
-      knowledge: []
+      knowledge: [],
+      modelId: attrs.modelId || defaultNpcModel,
+      rigged: true,
     });
   }
 
@@ -155,7 +166,8 @@ export function compileSceneGraph(graph: WorldGraph, sessionId: string): Compile
       interactable: true,
       interactId: l.id,
       pickable: false,
-      locked: false
+      locked: false,
+      assetId: attrs.assetId || (attrs.assetTag ? `polyfork:${attrs.assetTag}` : undefined),
     };
   });
 

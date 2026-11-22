@@ -83,4 +83,29 @@ describe('Day / Night Shift and Default Sun Controls', () => {
     useUIStore.getState().setIsNight(false);
     expect(useUIStore.getState().isNight).toBe(false);
   });
+
+  it('maintains dual-axis sunlight and moonlight parameters during day-night shifts', () => {
+    const store = useUIStore.getState();
+    expect(store.sunlight).toBeDefined();
+    expect(store.sunlight.elevation).toBe(45);
+    expect(store.sunlight.azimuth).toBe(135);
+    expect(store.sunlight.intensity).toBe(1.35);
+
+    expect(store.moonlight).toBeDefined();
+    expect(store.moonlight.elevation).toBe(55);
+    expect(store.moonlight.azimuth).toBe(315);
+    expect(store.moonlight.intensity).toBe(0.25);
+    expect(store.moonlight.starDensity).toBe(0.85);
+
+    // Update sunlight
+    store.setSunlight({ elevation: 30, color: '#f59e0b' });
+    expect(useUIStore.getState().sunlight.elevation).toBe(30);
+    expect(useUIStore.getState().sunlight.color).toBe('#f59e0b');
+    expect(useUIStore.getState().tuningParams.sunAngle).toBe(30);
+
+    // Update moonlight
+    store.setMoonlight({ elevation: 60, starDensity: 0.95 });
+    expect(useUIStore.getState().moonlight.elevation).toBe(60);
+    expect(useUIStore.getState().moonlight.starDensity).toBe(0.95);
+  });
 });

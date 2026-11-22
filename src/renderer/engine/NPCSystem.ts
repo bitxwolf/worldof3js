@@ -4,6 +4,116 @@ import { createDefaultHumanoid } from './DefaultMeshes';
 import { imageToGeometry } from './assets/img2threejsAdapter';
 import { useWorldStore } from '../store/worldStore';
 import type { ResourceRegistry } from './ResourceRegistry';
+import { AssetRegistry } from './AssetRegistry';
+
+export const CLIP_ORDER = ['Idle', 'Walk', 'Run', 'Agree', 'Head shake'] as const;
+export const clipRank = (n: string): number => {
+  const idx = (CLIP_ORDER as readonly string[]).indexOf(n);
+  return idx >= 0 ? idx : CLIP_ORDER.length;
+};
+
+// A bone named base, or base_N as GLTFLoader names a repeat.
+// Prioritizes exact matches before duplicate suffixes to prevent false matches (e.g. LeftHand_Thumb).
+export function findBone(root: THREE.Object3D, base: string): THREE.Bone | null {
+  let exactMatch: THREE.Bone | null = null;
+  let suffixMatch: THREE.Bone | null = null;
+  const numSuffixRegex = new RegExp(`^${base}_\\d+$`);
+
+  root.traverse((o) => {
+    if (o instanceof THREE.Bone) {
+      if (!exactMatch && o.name === base) {
+        exactMatch = o;
+      } else if (!suffixMatch && numSuffixRegex.test(o.name)) {
+        suffixMatch = o;
+      }
+    }
+  });
+
+  return exactMatch || suffixMatch;
+}
+
+export type RawClip = { times: number[]; tracks: Record<string, number[]>; hips: number[] };
+
+let cachedRawClips: Record<string, RawClip> | null = null;
+
+export async function loadRawClips(): Promise<Record<string, RawClip> | null> {
+  if (cachedRawClips) return cachedRawClips;
+
+  if (typeof window !== 'undefined' && window.electronAPI?.polyfork) {
+    try {
+      const res = await window.electronAPI.polyfork.getClips();
+      if (res.success && res.data && Object.keys(res.data).length > 0) {
+        cachedRawClips = res.data;
+        return cachedRawClips;
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  if (typeof fetch === 'function') {
+    try {
+      const res = await fetch('polyfork://clips.json');
+      if (res.ok) {
+        cachedRawClips = await res.json();
+        return cachedRawClips;
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  return null;
+}
+
+export function setMockClips(clips: Record<string, RawClip> | null): void {
+  cachedRawClips = clips;
+}
+
+/**
+ * Universal Mixamo retargeting system: retargets shared Mixamo animation clips
+ * onto any skeleton in root that possesses standard Mixamo bone names.
+ */
+export async function sharedClipsFor(
+  root: THREE.Object3D,
+  rawClipsSource?: () => Promise<Record<string, RawClip> | null>
+): Promise<THREE.AnimationClip[]> {
+  const hipsBones: THREE.Bone[] = [];
+  root.traverse((o) => {
+    if (o instanceof THREE.Bone && /^Hips(_\d+)?$/.test(o.name)) {
+      hipsBones.push(o);
+    }
+  });
+
+  const rigs = hipsBones.filter((h) =>
+    ['LeftUpLeg', 'RightUpLeg', 'LeftArm', 'RightArm'].every((n) => findBone(h, n))
+  );
+
+  if (!rigs.length) return [];
+
+  const raw = rawClipsSource ? await rawClipsSource() : await loadRawClips();
+  if (!raw) return [];
+
+  return Object.keys(raw)
+    .sort((a, b) => clipRank(a) - clipRank(b) || a.localeCompare(b))
+    .map((name) => {
+      const clip = raw[name];
+      const tracks: THREE.KeyframeTrack[] = [];
+      for (const hips of rigs) {
+        for (const [base, values] of Object.entries(clip.tracks)) {
+          const bone = base === 'Hips' ? hips : findBone(hips, base);
+          if (bone && values && values.length) {
+            tracks.push(new THREE.QuaternionKeyframeTrack(bone.uuid + '.quaternion', clip.times, values));
+          }
+        }
+        const rest = hips.position;
+        const k = (rest.y || 0.95) / 0.95;
+        const pos = clip.hips.map((v, i) => [rest.x, rest.y, rest.z][i % 3] + v * k);
+        tracks.push(new THREE.VectorKeyframeTrack(hips.uuid + '.position', clip.times, pos));
+      }
+      return new THREE.AnimationClip(name, -1, tracks);
+    });
+}
 
 export interface NPCInstance {
   character: Character;
@@ -13,20 +123,26 @@ export interface NPCInstance {
   wanderTarget: THREE.Vector3 | null;
   wanderTimer: number;
   bobPhase: number;
+  mixer?: THREE.AnimationMixer;
+  actions?: Map<string, THREE.AnimationAction>;
+  activeActionName?: string;
+  onGestureFinished?: (e: { action: THREE.AnimationAction }) => void;
 }
 
 export class NPCSystem {
   private npcs: NPCInstance[] = [];
   private scene: THREE.Scene;
   private registry?: ResourceRegistry;
+  private assetRegistry: AssetRegistry;
 
   private readonly _scratchLook = new THREE.Vector3();
   private readonly _scratchQuat = new THREE.Quaternion();
   private readonly _dummyObj = new THREE.Object3D();
 
-  constructor(scene: THREE.Scene, registry?: ResourceRegistry) {
+  constructor(scene: THREE.Scene, registry?: ResourceRegistry, assetRegistry?: AssetRegistry) {
     this.scene = scene;
     this.registry = registry;
+    this.assetRegistry = assetRegistry ?? new AssetRegistry();
   }
 
   async spawnAll(characters: Character[]): Promise<void> {
@@ -75,7 +191,57 @@ export class NPCSystem {
       };
       this.npcs.push(instance);
 
-      if (portrait) {
+      let modelMounted = false;
+      const polyforkModelId =
+        char.modelId ||
+        (char.assetUrl && char.assetUrl.startsWith('polyfork:') ? char.assetUrl : null);
+
+      if (polyforkModelId) {
+        try {
+          console.info(`[NPCSystem] Loading Polyfork character model ${polyforkModelId} for ${char.name}`);
+          const characterModel = await this.assetRegistry.loadModel(polyforkModelId);
+          characterModel.position.set(0, 0, 0);
+          group.add(characterModel);
+          group.userData.isPolyforkModel = true;
+          modelMounted = true;
+
+          // Universal Mixamo Retargeting
+          const sharedClips = await sharedClipsFor(characterModel);
+          const ownAnimations = (characterModel.userData.animations as THREE.AnimationClip[]) || [];
+          const ownNames = new Set(ownAnimations.map((a) => a.name));
+          const allClips = [...ownAnimations, ...sharedClips.filter((c) => !ownNames.has(c.name))];
+
+          if (allClips.length > 0) {
+            const mixer = new THREE.AnimationMixer(characterModel);
+            const actions = new Map<string, THREE.AnimationAction>();
+            for (const clip of allClips) {
+              const action = mixer.clipAction(clip);
+              actions.set(clip.name, action);
+            }
+
+            const initialActionName =
+              char.behavior === 'patrol' || char.behavior === 'wander' ? 'Walk' : 'Idle';
+            const actionName = actions.has(initialActionName)
+              ? initialActionName
+              : actions.has('Idle')
+              ? 'Idle'
+              : actions.keys().next().value;
+            const startAction = actionName ? actions.get(actionName) : undefined;
+            if (startAction && actionName) {
+              startAction.play();
+              instance.activeActionName = actionName;
+            }
+
+            instance.mixer = mixer;
+            instance.actions = actions;
+            console.info(`[NPCSystem] ✓ Bound ${actions.size} animations for ${char.name}`);
+          }
+        } catch (modelErr) {
+          console.warn(`[NPCSystem] Polyfork model load failed for ${char.name} (${polyforkModelId}), falling back:`, modelErr);
+        }
+      }
+
+      if (!modelMounted && portrait) {
         try {
           console.info(`[NPCSystem] Spawning custom volumetric avatar for ${char.name} via img2threejsAdapter`);
           const customAvatar = await imageToGeometry(portrait, {
@@ -101,7 +267,7 @@ export class NPCSystem {
             group.add(child);
           }
         }
-      } else {
+      } else if (!modelMounted) {
         // Standard procedural humanoid
         const defaultMesh = createDefaultHumanoid();
         while (defaultMesh.children.length > 0) {
@@ -194,6 +360,10 @@ export class NPCSystem {
 
   tick(delta: number, playerPosition: THREE.Vector3): void {
     for (const npc of this.npcs) {
+      if (npc.mixer) {
+        npc.mixer.update(delta);
+      }
+
       // Look at player if within 10 units
       const dist = npc.group.position.distanceTo(playerPosition);
       if (dist > 0.01 && dist < 10) {
@@ -227,8 +397,70 @@ export class NPCSystem {
     }
   }
 
+  private transitionClip(npc: NPCInstance, targetName: string, duration = 0.2): void {
+    if (!npc.actions || npc.activeActionName === targetName) return;
+    // Do not interrupt expressive one-shot dialogue gestures with locomotion ticks
+    if (npc.activeActionName === 'Agree' || npc.activeActionName === 'Head shake') return;
+    const nextAction = npc.actions.get(targetName);
+    if (!nextAction) return;
+
+    const prevAction = npc.activeActionName ? npc.actions.get(npc.activeActionName) : null;
+    if (prevAction && prevAction !== nextAction) {
+      prevAction.fadeOut(duration);
+    }
+    nextAction.reset().fadeIn(duration).play();
+    npc.activeActionName = targetName;
+  }
+
+  /**
+   * Expressive dialogue gesture (Agree / Head shake) played when interacting with NPC.
+   */
+  playGesture(npcId: string, gesture?: 'Agree' | 'Head shake'): void {
+    const npc = this.npcs.find((n) => n.character.id === npcId);
+    if (!npc || !npc.mixer || !npc.actions) return;
+    const gestureName = gesture || (Math.random() > 0.5 ? 'Agree' : 'Head shake');
+    const gestureAction = npc.actions.get(gestureName);
+    if (!gestureAction) return;
+
+    // Clean up any pending gesture listener
+    if (npc.onGestureFinished && npc.mixer) {
+      npc.mixer.removeEventListener('finished', npc.onGestureFinished);
+      npc.onGestureFinished = undefined;
+    }
+
+    const prevAction = npc.activeActionName ? npc.actions.get(npc.activeActionName) : null;
+    if (prevAction && prevAction !== gestureAction) {
+      prevAction.fadeOut(0.2);
+    }
+
+    gestureAction.reset();
+    gestureAction.setLoop(THREE.LoopOnce, 1);
+    gestureAction.clampWhenFinished = true;
+    gestureAction.fadeIn(0.2).play();
+    npc.activeActionName = gestureName;
+
+    const onFinished = (e: { action: THREE.AnimationAction }) => {
+      if (e.action === gestureAction) {
+        if (npc.mixer) {
+          npc.mixer.removeEventListener('finished', onFinished);
+        }
+        npc.onGestureFinished = undefined;
+        gestureAction.fadeOut(0.2);
+        const returnClip = npc.behavior === 'patrol' || npc.behavior === 'wander' ? 'Walk' : 'Idle';
+        const returnAction = npc.actions?.get(returnClip) || npc.actions?.get('Idle');
+        if (returnAction) {
+          returnAction.reset().fadeIn(0.2).play();
+          npc.activeActionName = returnClip;
+        }
+      }
+    };
+    npc.onGestureFinished = onFinished;
+    npc.mixer.addEventListener('finished', onFinished);
+  }
+
   private tickIdle(npc: NPCInstance, delta: number): void {
     npc.bobPhase += delta * 1.5;
+    this.transitionClip(npc, 'Idle');
 
     if (npc.group.userData?.isCustomAvatar) {
       // Subtle floating hover/bob on custom volumetric avatar
@@ -236,7 +468,7 @@ export class NPCSystem {
       if (avatarMesh) {
         avatarMesh.position.y = Math.sin(npc.bobPhase) * 0.04;
       }
-    } else {
+    } else if (!npc.group.userData?.isPolyforkModel) {
       // Subtle head-bob animation on standard humanoid
       const headChild = npc.group.children[1]; // head is second child
       if (headChild) {
@@ -258,7 +490,9 @@ export class NPCSystem {
     const distToTarget = dir.length();
     if (distToTarget < 0.5) {
       npc.patrolIndex = (npc.patrolIndex + 1) % path.length;
+      this.transitionClip(npc, 'Idle');
     } else {
+      this.transitionClip(npc, 'Walk');
       dir.normalize().multiplyScalar(1.5 * delta); // patrol speed 1.5 m/s
       pos.add(dir);
     }
@@ -281,8 +515,11 @@ export class NPCSystem {
     const dir = npc.wanderTarget.clone().sub(npc.group.position);
     dir.y = 0;
     if (dir.length() > 0.5) {
+      this.transitionClip(npc, 'Walk');
       dir.normalize().multiplyScalar(1.0 * delta); // wander speed 1.0 m/s
       npc.group.position.add(dir);
+    } else {
+      this.transitionClip(npc, 'Idle');
     }
   }
 
@@ -319,6 +556,17 @@ export class NPCSystem {
 
   /** Cleanly dispose an individual NPC and free all its GPU buffers. */
   disposeNPC(npc: NPCInstance): void {
+    if (npc.mixer) {
+      if (npc.onGestureFinished) {
+        npc.mixer.removeEventListener('finished', npc.onGestureFinished);
+        npc.onGestureFinished = undefined;
+      }
+      npc.mixer.stopAllAction();
+      npc.mixer.uncacheRoot(npc.group);
+      npc.mixer = undefined;
+    }
+    npc.actions?.clear();
+
     npc.group.traverse((child) => {
       if (child instanceof THREE.Mesh) {
         child.geometry?.dispose();

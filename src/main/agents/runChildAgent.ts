@@ -37,7 +37,8 @@ export interface ChildAgentResult<T> {
 export async function runChildAgent<T>(params: {
   agentId: AgentId;
   sessionId: string;
-  systemPromptPath: string;   // absolute path to .md file
+  systemPrompt?: string;
+  systemPromptPath?: string;   // absolute path to .md file (fallback)
   slice: Record<string, unknown>;
   instructions: string;
   schema: z.ZodSchema<T>;
@@ -48,7 +49,18 @@ export async function runChildAgent<T>(params: {
 }): Promise<ChildAgentResult<T>> {
   const { agentId, sessionId, systemPromptPath, slice, instructions, schema, storeService, graphStore, signal } = params;
 
-  const systemPrompt = fs.readFileSync(systemPromptPath, 'utf-8');
+  let systemPrompt = params.systemPrompt;
+  if (!systemPrompt && systemPromptPath) {
+    try {
+      systemPrompt = fs.readFileSync(systemPromptPath, 'utf-8');
+    } catch (readErr) {
+      console.warn(`[runChildAgent] Failed to read prompt file at ${systemPromptPath}:`, readErr);
+    }
+  }
+
+  if (!systemPrompt) {
+    throw new Error(`[runChildAgent] System prompt is missing or could not be loaded for agent: ${agentId}`);
+  }
   const userMessage = `CONTEXT:\n${JSON.stringify(slice, null, 2)}\n\nINSTRUCTIONS:\n${instructions}\n\nRespond with valid JSON only.`;
 
   const startedAt = Date.now();

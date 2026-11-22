@@ -122,3 +122,49 @@ export interface CompiledWorldResult {
   regionElevations: RegionElevation[];
   sessionId: string;
 }
+
+// ─── Polyfork Types ─────────────────────────────────────────────────────────
+
+export interface PolyforkSize {
+  x: number;
+  y: number;
+  z: number;
+}
+
+export interface PolyforkAsset {
+  id: string;
+  title: string;
+  class?: string;
+  kit?: string;
+  kit_title?: string;
+  triangles?: number;
+  size_m?: PolyforkSize;
+  rigged?: boolean;
+  page?: string;
+  glb: string;
+  thumb?: string;
+  bytes?: number;
+  updated_at?: number;
+  meta?: number;
+}
+
+export interface PolyforkKit {
+  id: string;
+  title: string;
+  status?: string;
+  parts?: number;
+}
+
+export interface PolyforkSearchOptions {
+  query?: string;
+  kit?: string;
+  class?: string;
+  limit?: number;
+}
+
+export interface PolyforkRawClip {
+  times: number[];
+  tracks: Record<string, number[]>;
+  hips: number[];
+}
+

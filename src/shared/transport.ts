@@ -200,9 +200,41 @@ function saveBrowserSettings(s: Partial<AppSettings>): void {
 
 async function browserLLMCall(systemPrompt: string, userPrompt: string, maxTokens: number = 4096): Promise<string> {
   const settings = getBrowserSettings();
-  if (!settings.apiKey) throw new Error('API key not configured. Open Settings to add your OpenRouter API key.');
-  
-  const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+  if (!settings.apiKey) throw new Error('API key not configured. Open Settings to add your API key.');
+
+  if (settings.activeProvider === 'anthropic') {
+    // Direct Anthropic Messages API
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'x-api-key': settings.apiKey,
+        'anthropic-version': '2023-06-01',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: settings.model || 'claude-3-5-sonnet-20241022',
+        max_tokens: maxTokens,
+        system: systemPrompt,
+        messages: [
+          { role: 'user', content: userPrompt },
+        ],
+      }),
+    });
+
+    if (!response.ok) {
+      const errText = await response.text();
+      throw new Error(`Anthropic API error (${response.status}): ${errText}`);
+    }
+
+    const json = await response.json();
+    const content = json.content?.[0]?.text;
+    if (!content) throw new Error('Anthropic returned an empty response');
+    return content;
+  }
+
+  // OpenAI-compatible endpoint (OpenRouter, Ollama, LocalAI, etc.)
+  const baseUrl = (settings.openaiBaseUrl || 'https://openrouter.ai/api/v1').replace(/\/$/, '');
+  const response = await fetch(`${baseUrl}/chat/completions`, {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${settings.apiKey}`,
@@ -220,15 +252,15 @@ async function browserLLMCall(systemPrompt: string, userPrompt: string, maxToken
       temperature: 0.7,
     }),
   });
-  
+
   if (!response.ok) {
     const errText = await response.text();
-    throw new Error(`OpenRouter API error (${response.status}): ${errText}`);
+    throw new Error(`LLM API error (${response.status}): ${errText}`);
   }
-  
+
   const json = await response.json();
   const content = json.choices?.[0]?.message?.content;
-  if (!content) throw new Error('OpenRouter returned an empty response');
+  if (!content) throw new Error('LLM API returned an empty response');
   return content;
 }
 

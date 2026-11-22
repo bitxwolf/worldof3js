@@ -110,4 +110,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on(IPC_CHANNELS.ORCHESTRATOR_PROGRESS, handler);
     return () => { ipcRenderer.removeListener(IPC_CHANNELS.ORCHESTRATOR_PROGRESS, handler); };
   },
+
+  // Polyfork Asset Integration
+  polyfork: {
+    searchAssets: (opts?: unknown) => ipcRenderer.invoke(IPC_CHANNELS.POLYFORK_SEARCH, opts),
+    listCached: () => ipcRenderer.invoke(IPC_CHANNELS.POLYFORK_LIST_CACHED),
+    downloadAsset: (id: string) => ipcRenderer.invoke(IPC_CHANNELS.POLYFORK_DOWNLOAD, id),
+    getKits: () => ipcRenderer.invoke(IPC_CHANNELS.POLYFORK_GET_KITS),
+    getClips: () => ipcRenderer.invoke(IPC_CHANNELS.POLYFORK_GET_CLIPS),
+    getAssetUrl: (id: string) => ipcRenderer.invoke(IPC_CHANNELS.POLYFORK_GET_ASSET_URL, id),
+    deleteAsset: (id: string) => ipcRenderer.invoke(IPC_CHANNELS.POLYFORK_DELETE_ASSET, id),
+  },
 });

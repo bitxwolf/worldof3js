@@ -6,6 +6,8 @@ import type { IGraphStore } from '../../shared/storage/IGraphStore';
 import type { GraphNodeRecord, GraphEdgeRecord, AgentRunRecord } from '../../shared/graph/graphTypes';
 import type { AgentId } from '../../shared/agents/agentTypes';
 
+import npcSystemPrompt from './prompts/npc.system.md?raw';
+
 const PROMPT_PATH = path.join(__dirname, 'prompts/npc.system.md');
 
 export function makeNode(id: string, type: GraphNodeRecord['type'], attrs: unknown, agentId: AgentId, version = 1): GraphNodeRecord {
@@ -33,6 +35,8 @@ export function toNodes(output: NPCAgentOutput, _sessionId: string): GraphNodeRe
         wanderRadius: npc.wanderRadius,
         dialogueSeed: npc.dialogueSeed,
         behaviorFlags: npc.behaviorFlags ?? {},
+        modelId: npc.modelId,
+        archetype: npc.archetype,
       },
       'npc',
     ),
@@ -64,6 +68,7 @@ export async function runNpcAgent(params: {
   const result = await runChildAgent({
     agentId: 'npc',
     sessionId: params.sessionId,
+    systemPrompt: npcSystemPrompt,
     systemPromptPath: PROMPT_PATH,
     slice: params.slice,
     instructions: 'Generate the NPCs for this world. Return JSON matching the schema.',

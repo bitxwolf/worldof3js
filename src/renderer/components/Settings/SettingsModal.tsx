@@ -165,14 +165,14 @@ export const SettingsModal = () => {
       agentModelOverrides: agentOverrides,
     };
 
-    if (openaiKey && !openaiKey.includes('*') && openaiKey.trim()) {
+    if (openaiKey !== undefined && !openaiKey.includes('*')) {
       payload.openaiApiKey = openaiKey.trim();
     }
-    if (anthropicKey && !anthropicKey.includes('*') && anthropicKey.trim()) {
+    if (anthropicKey !== undefined && !anthropicKey.includes('*')) {
       payload.anthropicApiKey = anthropicKey.trim();
     }
     const chosenKey = activeProvider === 'anthropic' ? anthropicKey : openaiKey;
-    if (chosenKey && !chosenKey.includes('*') && chosenKey.trim()) {
+    if (chosenKey !== undefined && !chosenKey.includes('*')) {
       payload.apiKey = chosenKey.trim();
     }
 

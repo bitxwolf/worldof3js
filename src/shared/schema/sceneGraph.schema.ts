@@ -39,6 +39,8 @@ export const CharacterSchema = z.object({
   behavior: z.enum(['idle', 'patrol', 'sit', 'wander']).default('idle'),
   patrolPath: z.array(Vector3Tuple).optional(),
   assetUrl: z.string().optional(),
+  modelId: z.string().optional(),
+  rigged: z.boolean().optional(),
   image: z.string().optional(),
   dialogueSeed: z.string().optional(),
 });
@@ -47,6 +49,8 @@ export const WorldObjectSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1).optional(),
   type: z.string().min(1),
+  assetId: z.string().optional(),
+  modelUrl: z.string().optional(),
   description: z.string().optional(),
   position: Vector3Tuple,
   rotation: Vector3Tuple.optional(),

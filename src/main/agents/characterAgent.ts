@@ -6,6 +6,8 @@ import type { IGraphStore } from '../../shared/storage/IGraphStore';
 import type { GraphNodeRecord, GraphEdgeRecord, AgentRunRecord } from '../../shared/graph/graphTypes';
 import type { AgentId } from '../../shared/agents/agentTypes';
 
+import characterSystemPrompt from './prompts/character.system.md?raw';
+
 const PROMPT_PATH = path.join(__dirname, 'prompts/character.system.md');
 
 export function makeNode(id: string, type: GraphNodeRecord['type'], attrs: unknown, agentId: AgentId, version = 1): GraphNodeRecord {
@@ -56,6 +58,7 @@ export async function runCharacterAgent(params: {
   const result = await runChildAgent({
     agentId: 'character',
     sessionId: params.sessionId,
+    systemPrompt: characterSystemPrompt,
     systemPromptPath: PROMPT_PATH,
     slice: params.slice,
     instructions: 'Generate the characters and relationships for this world. Return JSON matching the schema.',

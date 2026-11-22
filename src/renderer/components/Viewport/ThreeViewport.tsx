@@ -21,6 +21,7 @@ import { imageToGeometry } from '../../engine/assets/img2threejsAdapter';
 import { presetRegistry } from '../../engine/presets/PresetRegistry';
 import { useInventoryStore } from '../../store/inventoryStore';
 import { EventSystem } from '../../engine/EventSystem';
+import { WeatherSystem, type WeatherType } from '../../engine/WeatherSystem';
 import type { SceneGraph } from '../../../shared/schema/sceneGraph.schema';
 import { transport } from '../../../shared/transport';
 
@@ -40,6 +41,22 @@ function getElevation(x: number, z: number, seed: number, amplitude: number): nu
   return (wave1 * 0.75 + wave2 * 0.25) * amplitude * (centerDamp * 0.4 + 0.6);
 }
 
+const WEATHER_CYCLES: WeatherType[] = ['clear', 'fog', 'rain', 'snow', 'storm'];
+const WEATHER_ICONS: Record<WeatherType, string> = {
+  clear: 'ph-sun',
+  fog: 'ph-cloud-fog',
+  rain: 'ph-cloud-rain',
+  snow: 'ph-snowflake',
+  storm: 'ph-cloud-lightning',
+};
+const WEATHER_COLORS: Record<WeatherType, string> = {
+  clear: 'text-amber-400',
+  fog: 'text-slate-300',
+  rain: 'text-blue-400',
+  snow: 'text-cyan-200',
+  storm: 'text-violet-400',
+};
+
 export const ThreeViewport = () => {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -55,6 +72,10 @@ export const ThreeViewport = () => {
     seed,
     activeBiome,
     tuningParams,
+    weather,
+    sunlight,
+    moonlight,
+    setWeather,
     selectedNode,
     setSelectedNode,
     setTelemetry,
@@ -80,6 +101,7 @@ export const ThreeViewport = () => {
   const selectionBoxRef = useRef<THREE.BoxHelper | null>(null);
   const npcCharacterRef = useRef<THREE.Group | null>(null);
   const pointerLockRef = useRef<PointerLockControls | null>(null);
+  const weatherSystemRef = useRef<WeatherSystem | null>(null);
   const [isCircleSelectActive, setIsCircleSelectActive] = useState(false);
   const circleSelectToolRef = useRef<CircleSelectTool | null>(null);
 
@@ -812,6 +834,15 @@ export const ThreeViewport = () => {
     scene.add(selectionBox);
     selectionBoxRef.current = selectionBox;
 
+    // 7b. Dynamic Weather System
+    const weatherSystem = new WeatherSystem(scene);
+    weatherSystemRef.current = weatherSystem;
+    const initialUI = useUIStore.getState();
+    weatherSystem.setWeather(initialUI.weather.type, {
+      intensity: initialUI.weather.intensity,
+      windSpeed: initialUI.weather.windSpeed,
+    });
+
     // 8. Generate initial world
     generateWorld(activeBiome);
     syncSceneHierarchy(scene);
@@ -874,6 +905,11 @@ export const ThreeViewport = () => {
 
       const delta = clock.getDelta();
       const time = clock.getElapsedTime();
+
+      // Tick Weather System particles and storm lightning
+      if (weatherSystemRef.current) {
+        weatherSystemRef.current.update(delta, camera.position);
+      }
 
       // FPS Calculation (throttled to 1Hz)
       frameCount++;
@@ -1151,6 +1187,8 @@ export const ThreeViewport = () => {
       resizeObserver.disconnect();
       canvas.removeEventListener('pointerdown', onPointerDown);
       controls.dispose();
+      weatherSystemRef.current?.dispose();
+      weatherSystemRef.current = null;
       renderer.dispose();
       disposeHierarchy(scene);
       streamCleanupRef.current?.();
@@ -1382,6 +1420,9 @@ export const ThreeViewport = () => {
     const scene = sceneRef.current;
     const group = sceneGraphGroupRef.current;
     if (scene && group && sceneGraph) {
+      // Synchronize weather, timeOfDay, sunColor, and fogDensity from loaded/updated sceneGraph
+      useUIStore.getState().syncFromSceneGraph(sceneGraph);
+
       // 0. Setup / update EventSystem for the active world
       if (!eventSystemRef.current) {
         eventSystemRef.current = new EventSystem({
@@ -1416,8 +1457,18 @@ export const ThreeViewport = () => {
           const elev = useUIStore.getState().tuningParams.elevation;
           const helpers = new ProceduralAssetLibrary(group, worldSeed, (x, z) => getElevation(x, z, worldSeed, elev));
           const assets = { helpers, textures: new Map() };
-          const buildFn = new Function('scene', 'THREE', 'assets', `"use strict";\n${generatedCode}`);
-          buildFn(group, THREE, assets);
+          const isAsync = /\bawait\b/.test(generatedCode);
+          if (isAsync) {
+            const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
+            const buildFn = new AsyncFunction('scene', 'THREE', 'assets', `"use strict";\n${generatedCode}`);
+            void (buildFn(group, THREE, assets) as Promise<unknown>).catch((err: unknown) => {
+              console.warn('[ThreeViewport] Async LLM code execution failed:', err);
+              useUIStore.getState().addIpcLog(`[WORLDBUILDER] Code execution error: ${String(err)}`, 'error');
+            });
+          } else {
+            const buildFn = new Function('scene', 'THREE', 'assets', `"use strict";\n${generatedCode}`);
+            buildFn(group, THREE, assets);
+          }
           useUIStore.getState().addIpcLog('[WORLDBUILDER] LLM-generated world built successfully.', 'success');
           useUIStore.getState().setGeneratorMeta({
             generator: 'ProceduralAssetLibrary.v2',
@@ -1602,7 +1653,17 @@ export const ThreeViewport = () => {
     }
   }, [shadowsEnabled]);
 
-  // Sync Day/Night mode, Celestial Sun/Moon Position, Lighting & Atmosphere
+  // Sync Weather System options (type, intensity, wind speed)
+  useEffect(() => {
+    if (weatherSystemRef.current) {
+      weatherSystemRef.current.setWeather(weather.type, {
+        intensity: weather.intensity,
+        windSpeed: weather.windSpeed,
+      });
+    }
+  }, [weather.type, weather.intensity, weather.windSpeed]);
+
+  // Sync Day/Night mode, Dual-Axis Celestial Sun/Moon Position, Lighting & Atmosphere
   useEffect(() => {
     const sunLight = sunLightRef.current;
     const sunMesh = sunMeshRef.current;
@@ -1613,76 +1674,118 @@ export const ThreeViewport = () => {
 
     if (isNight) {
       // ── Night Mode (Moonlight, Deep Midnight Sky & Stars) ──
-      const moonAngle = 60 * (Math.PI / 180);
-      const moonDist = 75;
-      const moonX = Math.cos(moonAngle) * moonDist;
-      const moonY = Math.sin(moonAngle) * moonDist;
-      const moonZ = -35;
+      const elevRad = (moonlight.elevation * Math.PI) / 180;
+      const azimRad = (moonlight.azimuth * Math.PI) / 180;
+      const R = 75;
+      const moonX = Math.cos(elevRad) * Math.sin(azimRad) * R;
+      const moonY = Math.max(8, Math.sin(elevRad) * R);
+      const moonZ = Math.cos(elevRad) * Math.cos(azimRad) * R;
 
       sunLight.position.set(moonX, moonY, moonZ);
-      sunLight.color.setHex(0x8ba2cc);
-      sunLight.intensity = 0.22;
+      sunLight.color.set(moonlight.color);
+
+      let effectiveMoonIntensity = moonlight.intensity;
+      if (weather.type === 'storm') {
+        effectiveMoonIntensity *= Math.max(0.1, 1.0 - 0.7 * weather.intensity);
+      } else if (weather.type === 'fog') {
+        effectiveMoonIntensity *= Math.max(0.25, 1.0 - 0.4 * weather.intensity);
+      }
+      sunLight.intensity = effectiveMoonIntensity;
 
       if (ambientLight) {
-        ambientLight.color.setHex(0x0f172a);
-        ambientLight.intensity = 0.15;
+        ambientLight.color.set(moonlight.color);
+        let effectiveAmbient = Math.max(0.08, moonlight.intensity * 0.6);
+        if (weather.type === 'storm') {
+          effectiveAmbient *= Math.max(0.3, 1.0 - 0.5 * weather.intensity);
+        } else if (weather.type === 'fog') {
+          effectiveAmbient *= Math.max(0.4, 1.0 - 0.3 * weather.intensity);
+        }
+        ambientLight.intensity = effectiveAmbient;
       }
 
       if (sunMesh) {
         sunMesh.position.set(moonX * 2.2, moonY * 2.2, moonZ * 2.2);
         const core = sunMesh.getObjectByName('Sun_Core');
         const corona = sunMesh.getObjectByName('Sun_Corona');
-        const moon = sunMesh.getObjectByName('Celestial_Moon');
+        const moon = sunMesh.getObjectByName('Celestial_Moon') as THREE.Mesh;
         if (core) core.visible = false;
         if (corona) corona.visible = false;
-        if (moon) moon.visible = true;
+        if (moon) {
+          moon.visible = true;
+          if (moon.material instanceof THREE.MeshBasicMaterial) {
+            moon.material.color.set(moonlight.color);
+          }
+        }
       }
 
       if (starField) {
-        starField.visible = true;
+        const isObscured =
+          weather.type === 'storm' ||
+          weather.type === 'fog' ||
+          (weather.type === 'rain' && weather.intensity > 0.6) ||
+          (weather.type === 'snow' && weather.intensity > 0.7);
+        starField.visible = !isObscured && moonlight.starDensity > 0.05;
+        if (starField.material instanceof THREE.PointsMaterial) {
+          starField.material.opacity = moonlight.starDensity * 0.85;
+        }
       }
 
-      scene.background = new THREE.Color(0x060814);
+      const skyColor = weather.type === 'storm' ? 0x020308 : 0x060814;
+      const fogColor = weather.type === 'storm' ? 0x020308 : 0x060814;
+      scene.background = new THREE.Color(skyColor);
       if (scene.fog) {
-        scene.fog.color.setHex(0x060814);
+        scene.fog.color.setHex(fogColor);
       }
     } else {
-      // ── Day Mode (Default Sun & Daylight Atmosphere) ──
-      const rad = (tuningParams.sunAngle * Math.PI) / 180;
-      const sunDist = 70;
-      const sunX = Math.cos(rad) * sunDist;
-      const sunY = Math.max(14, Math.sin(rad) * sunDist);
-      const sunZ = 30;
+      // ── Day Mode (Sunlight & Daylight Atmosphere) ──
+      const elevRad = (sunlight.elevation * Math.PI) / 180;
+      const azimRad = (sunlight.azimuth * Math.PI) / 180;
+      const R = 75;
+      const sunX = Math.cos(elevRad) * Math.sin(azimRad) * R;
+      const sunY = Math.max(8, Math.sin(elevRad) * R);
+      const sunZ = Math.cos(elevRad) * Math.cos(azimRad) * R;
 
       sunLight.position.set(sunX, sunY, sunZ);
+      sunLight.color.set(sunlight.color);
 
-      // Biome-specific daylight illumination
-      if (activeBiome === 'canyon') {
-        sunLight.color.setHex(0xffedd5);
-        if (ambientLight) ambientLight.color.setHex(0xfdba74);
-      } else if (activeBiome === 'cyber') {
-        sunLight.color.setHex(0xf43f5e);
-        if (ambientLight) ambientLight.color.setHex(0x38bdf8);
-      } else if (activeBiome === 'alien') {
-        sunLight.color.setHex(0xa855f7);
-        if (ambientLight) ambientLight.color.setHex(0x2dd4bf);
-      } else if (activeBiome === 'ruins') {
-        sunLight.color.setHex(0xfb923c);
-        if (ambientLight) ambientLight.color.setHex(0xfde68a);
-      } else {
-        sunLight.color.setHex(0xfffae0);
-        if (ambientLight) ambientLight.color.setHex(0xdde6ff);
+      let effectiveSunIntensity = sunlight.intensity;
+      if (weather.type === 'storm') {
+        effectiveSunIntensity *= Math.max(0.15, 1.0 - 0.65 * weather.intensity);
+      } else if (weather.type === 'fog') {
+        effectiveSunIntensity *= Math.max(0.3, 1.0 - 0.35 * weather.intensity);
       }
-      sunLight.intensity = 1.35;
-      if (ambientLight) ambientLight.intensity = 0.45;
+      sunLight.intensity = effectiveSunIntensity;
+
+      if (ambientLight) {
+        if (weather.type === 'storm') {
+          ambientLight.color.setHex(0x334155);
+          ambientLight.intensity = Math.max(0.15, 0.35 - 0.15 * weather.intensity);
+        } else if (weather.type === 'fog') {
+          ambientLight.color.setHex(0x64748b);
+          ambientLight.intensity = Math.max(0.25, 0.45 - 0.1 * weather.intensity);
+        } else {
+          ambientLight.color.set(sunlight.color);
+          ambientLight.intensity = 0.45;
+        }
+      }
 
       if (sunMesh) {
         sunMesh.position.set(sunX * 2.4, sunY * 2.4, sunZ * 2.4);
-        const core = sunMesh.getObjectByName('Sun_Core');
-        const corona = sunMesh.getObjectByName('Sun_Corona');
+        const core = sunMesh.getObjectByName('Sun_Core') as THREE.Mesh;
+        const corona = sunMesh.getObjectByName('Sun_Corona') as THREE.Mesh;
         const moon = sunMesh.getObjectByName('Celestial_Moon');
-        if (core) core.visible = true;
-        if (corona) corona.visible = true;
+        if (core) {
+          core.visible = true;
+          if (core.material instanceof THREE.MeshBasicMaterial) {
+            core.material.color.set(sunlight.color);
+          }
+        }
+        if (corona) {
+          corona.visible = true;
+          if (corona.material instanceof THREE.MeshBasicMaterial) {
+            corona.material.color.set(sunlight.color);
+          }
+        }
         if (moon) moon.visible = false;
       }
 
@@ -1690,9 +1793,15 @@ export const ThreeViewport = () => {
         starField.visible = false;
       }
 
-      let skyColor = 0x111827;
+      let skyColor = 0x1e3a5f;
       let fogColor = 0x0f172a;
-      if (activeBiome === 'canyon') {
+      if (weather.type === 'storm') {
+        skyColor = 0x0f141c;
+        fogColor = 0x0f141c;
+      } else if (weather.type === 'fog') {
+        skyColor = 0x27303f;
+        fogColor = 0x27303f;
+      } else if (activeBiome === 'canyon') {
         skyColor = 0x9a3412;
         fogColor = 0x29150d;
       } else if (activeBiome === 'cyber') {
@@ -1704,9 +1813,6 @@ export const ThreeViewport = () => {
       } else if (activeBiome === 'ruins') {
         skyColor = 0x44403c;
         fogColor = 0x1c1917;
-      } else {
-        skyColor = 0x1e3a5f;
-        fogColor = 0x0f172a;
       }
 
       scene.background = new THREE.Color(skyColor);
@@ -1714,7 +1820,7 @@ export const ThreeViewport = () => {
         scene.fog.color.setHex(fogColor);
       }
     }
-  }, [isNight, tuningParams.sunAngle, activeBiome]);
+  }, [isNight, sunlight, moonlight, weather.type, weather.intensity, activeBiome]);
 
   // Sync Fog Density slider
   useEffect(() => {
@@ -2146,6 +2252,12 @@ export const ThreeViewport = () => {
     }
   };
 
+  const handleCycleWeather = useCallback(() => {
+    const currentIndex = WEATHER_CYCLES.indexOf(weather.type);
+    const nextIndex = (currentIndex + 1) % WEATHER_CYCLES.length;
+    setWeather(WEATHER_CYCLES[nextIndex]);
+  }, [weather.type, setWeather]);
+
   const handleDeselect = () => {
     if (selectionBoxRef.current) {
       selectionBoxRef.current.visible = false;
@@ -2241,7 +2353,7 @@ export const ThreeViewport = () => {
               (window.electronAPI.npcReply({
                 npcId: activeNPC.id,
                 playerMessage: msg,
-                dialogueHistory: useNPCStore.getState().dialogueHistory[activeNPC.id] || [],
+                dialogueHistory: (useNPCStore.getState().dialogueHistory[activeNPC.id] || []).map((m) => ({ role: m.sender === 'player' ? 'user' as const : 'assistant' as const, content: m.text })),
                 character: {
                   name: activeNPC.name,
                   personality: activeNPC.personality,
@@ -2342,6 +2454,17 @@ export const ThreeViewport = () => {
         >
           <i className={`ph ${isNight ? 'ph-moon' : 'ph-sun'} text-sm`} />
           <span className="font-medium">{isNight ? 'Night' : 'Day'}</span>
+        </button>
+
+        {/* Quick Weather Switcher Pill */}
+        <button
+          type="button"
+          onClick={handleCycleWeather}
+          title={`Weather: ${weather.type.toUpperCase()} (Click to cycle)`}
+          className="px-2.5 py-1 rounded-md bg-black/60 mac-subtle-blur border border-white/10 text-xs text-white hover:bg-white/20 transition cursor-pointer flex items-center space-x-1.5"
+        >
+          <i className={`ph ${WEATHER_ICONS[weather.type]} ${WEATHER_COLORS[weather.type]} text-sm`} />
+          <span className="capitalize font-medium">{weather.type}</span>
         </button>
 
         <button

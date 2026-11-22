@@ -35,10 +35,14 @@ Output strictly valid JSON matching the exact schema below — no markdown prose
       "id": "snake_case",
       "name": "string",
       "regionId": "must_exist",
-      "significance": "string"
+      "significance": "string",
+      "assetId": "optional polyfork:<kit>_<model_name> (e.g. polyfork:medieval_watchtower)",
+      "assetTag": "optional string (e.g. tower, forge, temple, gate)"
     }
   ]
 }
+
+Polyfork Kits available: medieval, dungeon, scifi, cyberpunk, pirate, nature, apocalyptic. Landmarks can optionally tag an assetId matching the kit or architectural style.
 ```
 
 ## 4. Conflict-Prevention Rules

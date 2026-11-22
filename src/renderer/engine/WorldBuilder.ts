@@ -65,7 +65,7 @@ export class WorldBuilder {
       for (const objDef of graph.objects) {
         const exists = this.findSceneObjectByUserDataId(objDef.id);
         if (!exists) {
-          const mesh = this.createPatchObjectMesh(objDef);
+          const mesh = await this.createObjectMesh(objDef);
           this.sceneManager.add(mesh);
         }
       }
@@ -73,7 +73,11 @@ export class WorldBuilder {
 
     // Step 5: Spawn NPCs
     if (graph.characters && graph.characters.length > 0) {
-      this.npcSystem = new NPCSystem(this.sceneManager.scene, this.sceneManager.registry);
+      this.npcSystem = new NPCSystem(
+        this.sceneManager.scene,
+        this.sceneManager.registry,
+        this.assetRegistry
+      );
       await this.npcSystem.spawnAll(graph.characters);
     }
 
@@ -221,9 +225,16 @@ export class WorldBuilder {
           this.sceneManager.remove(existing);
         }
 
-        // Procedural mesh fallback for patch additions
-        const mesh = this.createPatchObjectMesh(objDef);
-        this.sceneManager.add(mesh);
+        const assetTarget = objDef.assetId || objDef.modelUrl;
+        if (assetTarget) {
+          void this.createObjectMesh(objDef).then((mesh) => {
+            this.sceneManager.add(mesh);
+            this.refreshCollidables();
+          });
+        } else {
+          const mesh = this.createPatchObjectMesh(objDef);
+          this.sceneManager.add(mesh);
+        }
       }
       this.refreshCollidables();
     }
@@ -231,7 +242,11 @@ export class WorldBuilder {
     // 2. Add/Update characters
     if (partial.characters && partial.characters.length > 0) {
       if (!this.npcSystem) {
-        this.npcSystem = new NPCSystem(this.sceneManager.scene, this.sceneManager.registry);
+        this.npcSystem = new NPCSystem(
+          this.sceneManager.scene,
+          this.sceneManager.registry,
+          this.assetRegistry
+        );
       }
       for (const char of partial.characters) {
         void this.npcSystem.spawnAll([char]);
@@ -242,6 +257,40 @@ export class WorldBuilder {
     if (partial.events && partial.events.length > 0 && this.eventSystem) {
       this.eventSystem.appendEvents(partial.events);
     }
+  }
+
+  private async createObjectMesh(objDef: WorldObject): Promise<THREE.Object3D> {
+    const assetTarget = objDef.assetId || objDef.modelUrl;
+    if (assetTarget) {
+      try {
+        const model = await this.assetRegistry.loadModel(assetTarget);
+        model.position.set(...objDef.position);
+        if (objDef.rotation) {
+          model.rotation.set(...objDef.rotation);
+        }
+        if (objDef.scale) {
+          model.scale.set(...objDef.scale);
+        }
+        model.userData = {
+          id: objDef.id,
+          name: objDef.name,
+          type: objDef.type,
+          assetId: objDef.assetId,
+          modelUrl: objDef.modelUrl,
+          collidable: objDef.collidable ?? true,
+          interactable: objDef.interactable ?? false,
+          pickable: objDef.pickable ?? false,
+        };
+        return model;
+      } catch (err) {
+        console.warn(
+          `[WorldBuilder] Failed to load Polyfork model for object ${objDef.id} (${assetTarget}), falling back to procedural mesh:`,
+          err
+        );
+      }
+    }
+
+    return this.createPatchObjectMesh(objDef);
   }
 
   private createPatchObjectMesh(objDef: WorldObject): THREE.Object3D {

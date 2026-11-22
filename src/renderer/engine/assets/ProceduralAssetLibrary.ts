@@ -7,6 +7,15 @@
 
 import * as THREE from 'three';
 import { presetRegistry } from '../presets/PresetRegistry';
+import { AssetRegistry } from '../AssetRegistry';
+
+let sharedDefaultAssetRegistry: AssetRegistry | null = null;
+function getDefaultAssetRegistry(): AssetRegistry {
+  if (!sharedDefaultAssetRegistry) {
+    sharedDefaultAssetRegistry = new AssetRegistry();
+  }
+  return sharedDefaultAssetRegistry;
+}
 
 // ── Tiny seeded PRNG (mulberry32) ─────────────────────────────────────────────
 // Lets us get the same "random" variation for the same world seed,
@@ -55,6 +64,12 @@ export interface LightingOptions {
   fogDensity?: number;
 }
 
+export interface PlaceModelOptions {
+  scale?: number;
+  rotationY?: number;
+  colorTint?: number;
+}
+
 // ── Color palettes per ground cover ──────────────────────────────────────────
 const GROUND_COLORS: Record<NonNullable<GroundOptions['cover']>, number[]> = {
   grass:  [0x3a5a2a, 0x4a7a35, 0x2d4e20, 0x5a8040],
@@ -81,6 +96,7 @@ export class ProceduralAssetLibrary {
     private readonly scene: THREE.Scene | THREE.Group,
     seed: number = 42,
     private readonly getElevation?: (x: number, z: number) => number,
+    private readonly assetRegistry?: AssetRegistry,
   ) {
     this.rng = makePRNG(seed);
   }
@@ -600,6 +616,107 @@ export class ProceduralAssetLibrary {
     group.add(beam);
 
     group.userData = { id: `well_${Math.round(x)}_${Math.round(z)}`, type: 'prop', collidable: true, interactable: true };
+    this.scene.add(group);
+    return group;
+  }
+
+  // ── Polyfork 3D Model Placement ───────────────────────────────────────────
+  async placeModel(
+    assetId: string,
+    x: number,
+    z: number,
+    options?: PlaceModelOptions,
+  ): Promise<THREE.Object3D> {
+    const groundY = this.getElevation ? this.getElevation(x, z) : 0;
+    try {
+      const registry = this.assetRegistry ?? getDefaultAssetRegistry();
+      const model = await registry.loadModel(assetId);
+
+      const scale = options?.scale ?? 1.0;
+      model.scale.set(scale, scale, scale);
+      if (options?.rotationY !== undefined) {
+        model.rotation.y = options.rotationY;
+      }
+      model.position.set(x, groundY, z);
+
+      if (options?.colorTint !== undefined) {
+        const tint = new THREE.Color(options.colorTint);
+        model.traverse((o) => {
+          if (o instanceof THREE.Mesh && o.material) {
+            const mats = Array.isArray(o.material) ? o.material : [o.material];
+            mats.forEach((m) => {
+              if (m && 'color' in m && m.color instanceof THREE.Color) {
+                m.color.multiply(tint);
+              }
+            });
+          }
+        });
+      }
+
+      model.userData = {
+        id: `model_${Math.round(x)}_${Math.round(z)}`,
+        assetId,
+        type: 'prop',
+        collidable: true,
+      };
+
+      this.scene.add(model);
+      return model;
+    } catch (err) {
+      console.warn(`[ProceduralAssetLibrary] placeModel failed for ${assetId}, falling back to procedural:`, err);
+      return this.fallbackProceduralModel(assetId, x, z, options);
+    }
+  }
+
+  private fallbackProceduralModel(
+    assetId: string,
+    x: number,
+    z: number,
+    options?: PlaceModelOptions,
+  ): THREE.Object3D {
+    const groundY = this.getElevation ? this.getElevation(x, z) : 0;
+    const lower = (assetId || '').toLowerCase();
+
+    if (/tree|pine|palm|bush|plant|foliage/.test(lower)) {
+      return this.createTree(x, z, { scale: options?.scale });
+    }
+    if (/rock|stone|boulder|cliff/.test(lower)) {
+      return this.createRock(x, z, { scale: options?.scale });
+    }
+    if (/house|building|tower|castle|cottage|cabin|hut|wall|forge/.test(lower)) {
+      return this.createBuilding(x, z, { style: 'medieval' });
+    }
+    if (/well/.test(lower)) {
+      return this.createWell(x, z);
+    }
+    if (/torch|lamp|lantern/.test(lower)) {
+      return this.createTorch(x, groundY, z);
+    }
+
+    // Generic low-poly box prop fallback
+    const group = new THREE.Group();
+    group.position.set(x, groundY, z);
+    const scale = options?.scale ?? 1.0;
+    group.scale.set(scale, scale, scale);
+    if (options?.rotationY !== undefined) {
+      group.rotation.y = options.rotationY;
+    }
+
+    const geo = new THREE.BoxGeometry(1.2, 1.2, 1.2);
+    const color = options?.colorTint ?? 0x7c3aed;
+    const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.8 });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.position.y = 0.6;
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    group.add(mesh);
+
+    group.userData = {
+      id: `fallback_${Math.round(x)}_${Math.round(z)}`,
+      assetId,
+      type: 'prop',
+      collidable: true,
+    };
     this.scene.add(group);
     return group;
   }

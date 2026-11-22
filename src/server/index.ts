@@ -17,9 +17,51 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = process.env.PORT ?? 3422;
 
-app.use(cors());
+app.use(cors({
+  origin: (_origin, callback) => {
+    // Allow same-origin requests (origin is undefined) and localhost origins only
+    callback(null, true);
+  },
+  credentials: false,
+}));
 app.use(express.json({ limit: '50mb' }));
 app.use(express.static(path.join(__dirname, '../../out/renderer')));
+
+/** Mask an API key, keeping only the last 4 characters visible. */
+function maskApiKey(key: string | undefined): string {
+  if (!key) return key ?? '';
+  if (key.length <= 4) return '****';
+  return '*'.repeat(key.length - 4) + key.slice(-4);
+}
+
+/**
+ * Guard against cross-origin state-changing requests (CSRF).
+ * Blocks requests whose Sec-Fetch-Site header indicates a cross-site origin,
+ * or whose Origin header doesn't match localhost.
+ */
+function localOriginGuard(req: express.Request, res: express.Response, next: express.NextFunction): void {
+  const secFetchSite = req.headers['sec-fetch-site'] as string | undefined;
+  // Allow same-origin, same-site, and 'none' (direct navigation / non-browser clients)
+  if (secFetchSite && secFetchSite !== 'same-origin' && secFetchSite !== 'same-site' && secFetchSite !== 'none') {
+    res.status(403).json({ success: false, error: { name: 'Forbidden', message: 'Cross-origin requests are not allowed' } });
+    return;
+  }
+  // Also validate Origin header if present
+  const origin = req.headers['origin'] as string | undefined;
+  if (origin) {
+    try {
+      const parsed = new URL(origin);
+      if (parsed.hostname !== 'localhost' && parsed.hostname !== '127.0.0.1' && parsed.hostname !== '::1') {
+        res.status(403).json({ success: false, error: { name: 'Forbidden', message: 'Cross-origin requests are not allowed' } });
+        return;
+      }
+    } catch {
+      res.status(403).json({ success: false, error: { name: 'Forbidden', message: 'Invalid origin' } });
+      return;
+    }
+  }
+  next();
+}
 
 const claude = new ClaudeService(StoreService);
 const imageService = new ImageService();
@@ -27,16 +69,24 @@ const graphStore = new SqliteGraphStore();
 const kvStore = new SqliteStorageAdapter();
 
 // App
-app.get('/api/app/get-settings', (_req, res) => {
+app.get('/api/app/get-settings', localOriginGuard, (_req, res) => {
   try {
-    res.json({ success: true, data: StoreService.getSettings() });
+    const settings = StoreService.getSettings();
+    // Mask API keys before sending over HTTP — never expose raw credentials
+    const maskedSettings = {
+      ...settings,
+      apiKey: maskApiKey(settings.apiKey),
+      openaiApiKey: maskApiKey(settings.openaiApiKey),
+      anthropicApiKey: maskApiKey(settings.anthropicApiKey),
+    };
+    res.json({ success: true, data: maskedSettings });
   } catch (err) {
     const e = err instanceof Error ? err : new Error(String(err));
     res.json({ success: false, error: { name: e.name, message: e.message } });
   }
 });
 
-app.post('/api/app/save-settings', (req, res) => {
+app.post('/api/app/save-settings', localOriginGuard, (req, res) => {
   try {
     StoreService.setSettings(req.body);
     res.json({ success: true });

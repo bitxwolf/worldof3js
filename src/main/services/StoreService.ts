@@ -131,7 +131,11 @@ export const StoreService = {
   },
 
   setApiKey: (key: string): void => {
-    if (!key || !key.trim() || key.includes('*')) return;
+    if (key.includes('*')) return;
+    if (!key.trim()) {
+      store.delete('apiKey');
+      return;
+    }
     let toStore = key.trim();
     if (toStore && isEncryptionAvailable()) {
       try {
@@ -167,7 +171,11 @@ export const StoreService = {
   },
 
   setOpenaiApiKey: (key: string): void => {
-    if (!key || !key.trim() || key.includes('*')) return;
+    if (key.includes('*')) return;
+    if (!key.trim()) {
+      store.delete('openaiApiKey');
+      return;
+    }
     let toStore = key.trim();
     if (toStore && isEncryptionAvailable()) {
       try {
@@ -203,7 +211,11 @@ export const StoreService = {
   },
 
   setAnthropicApiKey: (key: string): void => {
-    if (!key || !key.trim() || key.includes('*')) return;
+    if (key.includes('*')) return;
+    if (!key.trim()) {
+      store.delete('anthropicApiKey');
+      return;
+    }
     let toStore = key.trim();
     if (toStore && isEncryptionAvailable()) {
       try {
@@ -247,24 +259,24 @@ export const StoreService = {
   setSettings: (s: Partial<AppSettings>): void => {
     const toSave: Record<string, unknown> = { ...s };
 
-    const shouldPersistKey = (key: unknown): key is string => {
-      return typeof key === 'string' && key.trim().length > 0 && !key.includes('*');
+    const isSettableKey = (key: unknown): key is string => {
+      return typeof key === 'string' && !key.includes('*');
     };
 
     if (s.apiKey !== undefined) {
-      if (shouldPersistKey(s.apiKey)) {
+      if (isSettableKey(s.apiKey)) {
         StoreService.setApiKey(s.apiKey);
       }
       delete toSave.apiKey;
     }
     if (s.openaiApiKey !== undefined) {
-      if (shouldPersistKey(s.openaiApiKey)) {
+      if (isSettableKey(s.openaiApiKey)) {
         StoreService.setOpenaiApiKey(s.openaiApiKey);
       }
       delete toSave.openaiApiKey;
     }
     if (s.anthropicApiKey !== undefined) {
-      if (shouldPersistKey(s.anthropicApiKey)) {
+      if (isSettableKey(s.anthropicApiKey)) {
         StoreService.setAnthropicApiKey(s.anthropicApiKey);
       }
       delete toSave.anthropicApiKey;

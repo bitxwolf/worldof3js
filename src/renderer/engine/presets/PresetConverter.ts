@@ -261,6 +261,15 @@ function buildVolumetricExtrudedPreset(
     geometry.addGroup(0, frontTris.length, 0);
     geometry.addGroup(frontTris.length, sideTris.length, 1);
     geometry.addGroup(frontTris.length + sideTris.length, backTris.length, 2);
+  } else {
+    // Ensure geometry has an index so material groups can be assigned
+    const posCount = geometry.getAttribute('position').count;
+    const indices = new Uint32Array(posCount);
+    for (let i = 0; i < posCount; i++) indices[i] = i;
+    geometry.setIndex(new THREE.BufferAttribute(indices, 1));
+    // With a trivial index, assign all faces to front material (group 0)
+    geometry.clearGroups();
+    geometry.addGroup(0, posCount, 0);
   }
 
   const mesh = new THREE.Mesh(geometry, [frontMaterial, sideMaterial, backMaterial]);

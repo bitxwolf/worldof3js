@@ -6,6 +6,8 @@ import type { IGraphStore } from '../../shared/storage/IGraphStore';
 import type { GraphNodeRecord, GraphEdgeRecord, AgentRunRecord } from '../../shared/graph/graphTypes';
 import type { AgentId } from '../../shared/agents/agentTypes';
 
+import worldSystemPrompt from './prompts/world.system.md?raw';
+
 const PROMPT_PATH = path.join(__dirname, 'prompts/world.system.md');
 
 export function makeNode(id: string, type: GraphNodeRecord['type'], attrs: unknown, agentId: AgentId, version = 1): GraphNodeRecord {
@@ -48,6 +50,8 @@ export function toNodes(output: WorldOutput, _sessionId: string): GraphNodeRecor
           name: landmark.name,
           regionId: landmark.regionId,
           significance: landmark.significance,
+          assetId: landmark.assetId,
+          assetTag: landmark.assetTag,
         },
         'world',
       ),
@@ -85,6 +89,7 @@ export async function runWorldAgent(params: {
   const result = await runChildAgent({
     agentId: 'world',
     sessionId: params.sessionId,
+    systemPrompt: worldSystemPrompt,
     systemPromptPath: PROMPT_PATH,
     slice: params.slice,
     instructions: 'Generate the regions and landmarks for this world. Return JSON matching the schema.',

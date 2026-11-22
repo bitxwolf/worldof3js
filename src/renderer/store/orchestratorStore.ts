@@ -13,7 +13,14 @@ export interface OrchestratorState {
   activeSelection: SelectionContext | null;
   error: string | null;
   lastResult: CompiledWorldResult | null;
-  generateWorld: (prompt: string, mode?: GenerationMode) => Promise<CompiledWorldResult | null>;
+  generateWorld: (
+    prompt: string,
+    mode?: GenerationMode,
+    options?: {
+      document?: string;
+      imageDescriptions?: Array<{ tag: 'character' | 'scene' | 'texture' | 'map'; description: string }>;
+    }
+  ) => Promise<CompiledWorldResult | null>;
   editSelection: (updatePrompt: string) => Promise<CompiledWorldResult | null>;
   setActiveSelection: (sel: SelectionContext | null) => void;
   clearSelection: () => void;
@@ -29,13 +36,22 @@ export const useOrchestratorStore = create<OrchestratorState>((set, get) => ({
   error: null,
   lastResult: null,
 
-  generateWorld: async (prompt: string, mode: GenerationMode = 'detailed'): Promise<CompiledWorldResult | null> => {
+  generateWorld: async (
+    prompt: string,
+    mode: GenerationMode = 'detailed',
+    options?: {
+      document?: string;
+      imageDescriptions?: Array<{ tag: 'character' | 'scene' | 'texture' | 'map'; description: string }>;
+    }
+  ): Promise<CompiledWorldResult | null> => {
     set({ status: 'generating', progress: null, error: null });
 
     let result = await transport.call<CompiledWorldResult>(IPC_CHANNELS.ORCHESTRATOR_GENERATE, {
       userPrompt: prompt,
       rawPrompt: prompt,
       mode,
+      document: options?.document,
+      imageDescriptions: options?.imageDescriptions,
     });
 
     if (!isOk(result) && typeof window !== 'undefined' && typeof (window as any).electronAPI?.orchestrate === 'function') {
@@ -43,6 +59,8 @@ export const useOrchestratorStore = create<OrchestratorState>((set, get) => ({
         userPrompt: prompt,
         rawPrompt: prompt,
         mode,
+        document: options?.document,
+        imageDescriptions: options?.imageDescriptions,
       });
     }
 

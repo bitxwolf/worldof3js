@@ -6,6 +6,8 @@ import type { IGraphStore } from '../../shared/storage/IGraphStore';
 import type { GraphNodeRecord, GraphEdgeRecord, AgentRunRecord } from '../../shared/graph/graphTypes';
 import type { AgentId } from '../../shared/agents/agentTypes';
 
+import questSystemPrompt from './prompts/quest.system.md?raw';
+
 const PROMPT_PATH = path.join(__dirname, 'prompts/quest.system.md');
 
 export function makeNode(id: string, type: GraphNodeRecord['type'], attrs: unknown, agentId: AgentId, version = 1): GraphNodeRecord {
@@ -62,6 +64,7 @@ export async function runQuestAgent(params: {
   const result = await runChildAgent({
     agentId: 'quest',
     sessionId: params.sessionId,
+    systemPrompt: questSystemPrompt,
     systemPromptPath: PROMPT_PATH,
     slice: params.slice,
     instructions: 'Generate the quests for this world. Return JSON matching the schema.',

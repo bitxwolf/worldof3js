@@ -64,6 +64,8 @@ export const WorldOutputSchema = z.object({
     name: z.string().min(1),
     regionId: z.string().min(1),
     significance: z.string().min(1).max(300),
+    assetId: z.string().optional(),
+    assetTag: z.string().optional(),
   })).max(20),
 });
 
@@ -78,6 +80,8 @@ export const NPCOutputSchema = z.object({
     wanderRadius: z.number().positive().max(200),
     dialogueSeed: z.string().min(1).max(200),
     behaviorFlags: z.record(z.boolean()).default({}),
+    modelId: z.string().optional(),
+    archetype: z.string().optional(),
   })).min(1).max(30),
 });
 

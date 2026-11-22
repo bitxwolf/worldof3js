@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { SceneGraph } from '../../shared/schema/sceneGraph.schema';
+import { useUIStore } from './uiStore';
 
 interface WorldState {
   sceneGraph: SceneGraph | null;
@@ -30,12 +31,18 @@ export const useWorldStore = create<WorldState>((set) => ({
   uploadedDocument: null,
   uploadedImages: [],
 
-  setSceneGraph: (sceneGraph) =>
+  setSceneGraph: (sceneGraph) => {
+    try {
+      useUIStore.getState().syncFromSceneGraph(sceneGraph);
+    } catch {
+      // In isolated tests where uiStore is mocked or not yet initialized
+    }
     set({
       sceneGraph,
       flags: sceneGraph.flags || {},
-      playerPosition: sceneGraph.player?.startPosition || [0, 1.7, 0],
-    }),
+      playerPosition: sceneGraph.player?.spawn || sceneGraph.player?.startPosition || [0, 1.7, 0],
+    });
+  },
 
   patchSceneGraph: (partial) =>
     set((state) => {

@@ -11,6 +11,10 @@ import type {
   GraphQueryRadiusPayload,
   GraphQueryRadiusResult,
   CompiledWorldResult,
+  PolyforkAsset,
+  PolyforkKit,
+  PolyforkSearchOptions,
+  PolyforkRawClip,
 } from '../shared/ipc.types';
 import type { OrchestratorProgressEvent } from '../shared/agents/agentTypes';
 import type { SceneGraph } from '../shared/schema/sceneGraph.schema';
@@ -62,6 +66,17 @@ declare global {
       // WebUtils
       webUtils?: {
         getPathForFile?: (file: File) => string;
+      };
+
+      // Polyfork Asset Integration
+      polyfork?: {
+        searchAssets: (opts?: PolyforkSearchOptions) => Promise<IPCResult<PolyforkAsset[]>>;
+        listCached: () => Promise<IPCResult<PolyforkAsset[]>>;
+        downloadAsset: (id: string) => Promise<IPCResult<PolyforkAsset>>;
+        getKits: () => Promise<IPCResult<PolyforkKit[]>>;
+        getClips: () => Promise<IPCResult<Record<string, PolyforkRawClip>>>;
+        getAssetUrl: (id: string) => Promise<IPCResult<string>>;
+        deleteAsset: (id: string) => Promise<IPCResult<boolean>>;
       };
     };
   }

@@ -25,10 +25,14 @@ Output strictly valid JSON matching the exact schema below — no markdown prose
       "factionId": "must_exist",
       "wanderRadius": 10,
       "dialogueSeed": "one sentence describing personality/speech style",
-      "behaviorFlags": {}
+      "behaviorFlags": {},
+      "modelId": "optional polyfork:<character_model_id> (e.g. polyfork:knight, polyfork:guard, polyfork:wizard, polyfork:peasant, polyfork:merchant)",
+      "archetype": "optional string (knight, guard, wizard, peasant, rogue, merchant, cyber_warrior)"
     }
   ]
 }
+
+Polyfork Character Kits: Characters can be assigned rigged low-poly models (e.g. knight, guard, wizard, peasant, merchant, warrior). When modelId or archetype is provided, universal Mixamo skeletal animations (Idle, Walk, Run, Agree, Head shake) are automatically bound by the engine.
 ```
 
 ## 4. Conflict-Prevention Rules

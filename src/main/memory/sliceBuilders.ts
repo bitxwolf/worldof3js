@@ -1,14 +1,24 @@
 import type { WorldGraph } from './WorldGraph';
 import type { StoryAttrs, FactionAttrs, CharacterAttrs, RegionAttrs, NPCAttrs, QuestAttrs } from '../../shared/graph/graphTypes';
+import type { WorldRequest } from '../../shared/agents/agentTypes';
 
 const MAX_HISTORY_CHARS = 800;
 function truncate(s: string, max: number): string {
   return s.length > max ? s.slice(0, max) + '…' : s;
 }
 
-export function buildStorySlice(_graph: WorldGraph): Record<string, unknown> {
-  // Story runs first — no prior graph data needed
-  return { note: 'You are generating the foundational story. No prior context exists.' };
+export function buildStorySlice(_graph: WorldGraph, request?: WorldRequest): Record<string, unknown> {
+  const slice: Record<string, unknown> = {
+    userPrompt: request?.rawPrompt || 'A rich, detailed world',
+    note: 'You are generating the foundational story. Base the genre, tone, themes, history, factions, and central conflict on the user prompt and context.',
+  };
+  if (request?.document) {
+    slice.document = request.document;
+  }
+  if (request?.imageDescriptions && request.imageDescriptions.length > 0) {
+    slice.imageDescriptions = request.imageDescriptions;
+  }
+  return slice;
 }
 
 export function buildCharacterSlice(graph: WorldGraph): Record<string, unknown> {

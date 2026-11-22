@@ -6,6 +6,8 @@ import type { IGraphStore } from '../../shared/storage/IGraphStore';
 import type { GraphNodeRecord, GraphEdgeRecord, AgentRunRecord } from '../../shared/graph/graphTypes';
 import type { AgentId } from '../../shared/agents/agentTypes';
 
+import dialogueSystemPrompt from './prompts/dialogue.system.md?raw';
+
 const PROMPT_PATH = path.join(__dirname, 'prompts/dialogue.system.md');
 
 export function makeNode(id: string, type: GraphNodeRecord['type'], attrs: unknown, agentId: AgentId, version = 1): GraphNodeRecord {
@@ -49,6 +51,7 @@ export async function runDialogueAgent(params: {
   const result = await runChildAgent({
     agentId: 'dialogue',
     sessionId: params.sessionId,
+    systemPrompt: dialogueSystemPrompt,
     systemPromptPath: PROMPT_PATH,
     slice: params.slice,
     instructions: 'Generate the dialogue trees for this world. Return JSON matching the schema.',

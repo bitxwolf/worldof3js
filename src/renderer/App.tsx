@@ -5,6 +5,7 @@ import { ThreeViewport } from './components/Viewport/ThreeViewport';
 import { RightInspector } from './components/Inspector/RightInspector';
 import { SettingsModal } from './components/Settings/SettingsModal';
 import { WorldLibraryModal } from './components/WorldLibrary/WorldLibraryModal';
+import { PolyforkExplorer } from './components/Polyfork/PolyforkExplorer';
 import { JSONInspector } from './components/Editor/JSONInspector';
 import { ViewportErrorBoundary } from './components/ErrorBoundary';
 import { useWorldStore } from './store/worldStore';
@@ -115,6 +116,9 @@ const App = () => {
 
       {/* Modal World Library & Export */}
       <WorldLibraryModal />
+
+      {/* Polyfork 3D Asset Explorer Drawer */}
+      <PolyforkExplorer />
     </div>
   );
 };

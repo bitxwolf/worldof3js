@@ -1,4 +1,6 @@
 import * as THREE from 'three';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import * as SkeletonUtils from 'three/examples/jsm/utils/SkeletonUtils.js';
 import type { ProceduralAssetLibrary } from './assets/ProceduralAssetLibrary';
 
 /**
@@ -240,8 +242,13 @@ export function validateTextureUrl(url: string): void {
     return;
   }
 
-  // 2. Allow data: and blob: schemes
-  if (trimmed.startsWith('data:') || trimmed.startsWith('blob:')) {
+  // 2. Allow data:, blob:, and polyfork: schemes
+  if (
+    trimmed.startsWith('data:') ||
+    trimmed.startsWith('blob:') ||
+    trimmed.startsWith('polyfork:') ||
+    trimmed.startsWith('polyfork://')
+  ) {
     return;
   }
 
@@ -276,7 +283,9 @@ function validateHttpUrl(url: string): void {
 
 export class AssetRegistry {
   private readonly textures = new Map<string, THREE.Texture>();
+  private readonly models = new Map<string, THREE.Group>();
   private readonly loader = new THREE.TextureLoader();
+  private gltfLoader: GLTFLoader | null = null;
 
   /** Validate a texture URL against SSRF and disallowed schemes. */
   validateTextureUrl(url: string): void {
@@ -306,6 +315,121 @@ export class AssetRegistry {
     });
   }
 
+  /** Load a 3D model (GLTF/GLB) by assetId, modelUrl, or polyfork URI and return a cloned instance. */
+  async loadModel(assetIdOrUrl: string): Promise<THREE.Group> {
+    if (!assetIdOrUrl || typeof assetIdOrUrl !== 'string') {
+      throw new Error('Model asset identifier or URL must be a non-empty string');
+    }
+
+    const trimmed = assetIdOrUrl.trim();
+
+    // Direct HTTP/HTTPS/data/blob URL (e.g. from WorldObject.modelUrl)
+    const isDirectUrl =
+      trimmed.startsWith('http://') ||
+      trimmed.startsWith('https://') ||
+      trimmed.startsWith('blob:') ||
+      trimmed.startsWith('data:');
+
+    if (isDirectUrl) {
+      validateTextureUrl(trimmed); // SSRF defense on external model URLs
+      const cached = this.models.get(trimmed);
+      if (cached) {
+        return this.cloneModel(cached);
+      }
+
+      if (!this.gltfLoader) {
+        this.gltfLoader = new GLTFLoader();
+      }
+
+      const gltf = await this.gltfLoader.loadAsync(trimmed);
+      const scene = gltf.scene;
+
+      scene.traverse((obj) => {
+        if (obj instanceof THREE.Mesh) {
+          obj.castShadow = true;
+          obj.receiveShadow = true;
+        }
+      });
+
+      if (gltf.animations && gltf.animations.length > 0) {
+        scene.userData.animations = gltf.animations;
+      }
+      scene.userData.assetId = trimmed;
+
+      this.models.set(trimmed, scene);
+      return this.cloneModel(scene);
+    }
+
+    const cleanId = trimmed
+      .replace(/^polyfork:\/\/?\/?/, '')
+      .replace(/^polyfork:/, '')
+      .replace(/^\/+/, '')
+      .replace(/\.glb$/, '');
+
+    // Return clone from cache if available
+    const cached = this.models.get(cleanId);
+    if (cached) {
+      return this.cloneModel(cached);
+    }
+
+    if (!this.gltfLoader) {
+      this.gltfLoader = new GLTFLoader();
+    }
+
+    // Try resolving through electronAPI if available
+    let modelUrl = `polyfork://${cleanId}.glb`;
+    if (typeof window !== 'undefined' && window.electronAPI?.polyfork) {
+      try {
+        const downloadRes = await window.electronAPI.polyfork.downloadAsset(cleanId);
+        if (downloadRes.success && downloadRes.data) {
+          const urlRes = await window.electronAPI.polyfork.getAssetUrl(cleanId);
+          if (urlRes.success && urlRes.data) {
+            modelUrl = urlRes.data;
+          }
+        }
+      } catch (err) {
+        console.warn(`[AssetRegistry] Pre-download check failed for ${cleanId}, attempting direct load:`, err);
+      }
+    }
+
+    const gltf = await this.gltfLoader.loadAsync(modelUrl);
+    const scene = gltf.scene;
+
+    scene.traverse((obj) => {
+      if (obj instanceof THREE.Mesh) {
+        obj.castShadow = true;
+        obj.receiveShadow = true;
+      }
+    });
+
+    // Attach any embedded animations to root userData
+    if (gltf.animations && gltf.animations.length > 0) {
+      scene.userData.animations = gltf.animations;
+    }
+    scene.userData.assetId = cleanId;
+
+    this.models.set(cleanId, scene);
+    return this.cloneModel(scene);
+  }
+
+  private cloneModel(source: THREE.Group): THREE.Group {
+    try {
+      const cloned = SkeletonUtils.clone(source) as THREE.Group;
+      if (source.userData.animations) {
+        cloned.userData.animations = source.userData.animations;
+      }
+      cloned.userData.assetId = source.userData.assetId;
+      return cloned;
+    } catch {
+      const cloned = source.clone(true) as THREE.Group;
+      if (source.userData.animations) {
+        cloned.userData.animations = source.userData.animations;
+      }
+      cloned.userData.assetId = source.userData.assetId;
+      return cloned;
+    }
+  }
+
   /** Get the current asset map for injection into generated code. */
   getAssetMap(): AssetMap {
     return {
@@ -313,10 +437,22 @@ export class AssetRegistry {
     };
   }
 
-  /** Dispose all cached textures. */
+  /** Dispose all cached textures and models. */
   disposeAll(): void {
     this.textures.forEach((t) => t.dispose());
     this.textures.clear();
+
+    this.models.forEach((group) => {
+      group.traverse((obj) => {
+        if (obj instanceof THREE.Mesh) {
+          obj.geometry?.dispose();
+          const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+          mats.forEach((m) => m?.dispose());
+        }
+      });
+    });
+    this.models.clear();
+
     console.debug('[AssetRegistry] All cached assets disposed');
   }
 }

@@ -39,6 +39,15 @@ export const IPC_CHANNELS = {
   GRAPH_LIST_SESSIONS:   'graph:list-sessions',
   GRAPH_LOAD_SESSION:    'graph:load-session',
   GRAPH_DELETE_SESSION:  'graph:delete-session',
+
+  // Polyfork
+  POLYFORK_SEARCH:       'polyfork:search',
+  POLYFORK_LIST_CACHED:  'polyfork:list-cached',
+  POLYFORK_DOWNLOAD:     'polyfork:download-asset',
+  POLYFORK_GET_KITS:     'polyfork:get-kits',
+  POLYFORK_GET_CLIPS:    'polyfork:get-clips',
+  POLYFORK_GET_ASSET_URL:'polyfork:get-asset-url',
+  POLYFORK_DELETE_ASSET: 'polyfork:delete-asset',
 } as const;
 
 export const LIMITS = {

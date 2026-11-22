@@ -15,7 +15,6 @@ const SAMPLE_PROMPTS = [
 ];
 
 export const PromptInput = ({ uploadedImages = [] }: { uploadedImages?: UploadedImage[] }) => {
-  void uploadedImages;
   const [text, setText] = useState('');
   const [documentContent, setDocumentContent] = useState<string | null>(null);
   const [hasApiKey, setHasApiKey] = useState(true);
@@ -58,7 +57,8 @@ export const PromptInput = ({ uploadedImages = [] }: { uploadedImages?: Uploaded
   };
 
   const handleGenerate = async (): Promise<void> => {
-    if ((!text.trim() && !documentContent) || isGenerating) return;
+    const promptText = text.trim() || (documentContent ? documentContent.slice(0, 4000) : '');
+    if (!promptText || isGenerating) return;
 
     try {
       const settingsRes = await transport.call<AppSettings>(IPC_CHANNELS.APP_GET_SETTINGS);
@@ -75,8 +75,22 @@ export const PromptInput = ({ uploadedImages = [] }: { uploadedImages?: Uploaded
     try {
       setGenerating(true, 'Initializing...');
       useWorldStore.getState().setCustomWorldActive(true);
-      
-      const result = await useOrchestratorStore.getState().generateWorld(text.trim(), generationMode);
+
+      const storeImages = useWorldStore.getState().uploadedImages || [];
+      const allImages = uploadedImages.length > 0 ? uploadedImages : storeImages;
+      const mappedImageDescriptions = allImages.map((img, idx) => ({
+        tag: (img.tag as 'character' | 'scene' | 'texture' | 'map') || 'scene',
+        description: `Uploaded reference image ${idx + 1} (${img.tag || 'reference'})`,
+      }));
+
+      const result = await useOrchestratorStore.getState().generateWorld(
+        promptText,
+        generationMode,
+        {
+          document: documentContent ?? undefined,
+          imageDescriptions: mappedImageDescriptions.length > 0 ? mappedImageDescriptions : undefined,
+        }
+      );
       
       if (result) {
         useUIStore.getState().setActiveBiome(result.activeBiome);
