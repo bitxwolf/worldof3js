@@ -45,6 +45,8 @@ graphify-out/
 
 # electron-store data (contains local API keys)
 app-data/
+orbis-config.json
+world.db*
 
 # Test coverage
 coverage/

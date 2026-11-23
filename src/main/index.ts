@@ -78,14 +78,6 @@ function createWindow(): void {
     mainWindow = null;
   });
 
-  registerAppHandlers();
-  registerFileHandlers();
-  registerLLMHandlers(() => mainWindow);
-  registerImageHandlers();
-  registerSettingsHandlers();
-  registerOrchestratorHandlers(() => mainWindow);
-  registerPolyforkHandlers();
-
   if (devServerUrl) {
     mainWindow.loadURL(devServerUrl);
   } else {
@@ -134,10 +126,12 @@ function setupNetworkGuard(): void {
         const parsed = new URL(details.url);
         const host = parsed.hostname.toLowerCase();
 
-        // Allow dev server
+        // Allow dev server and loopback in development mode
+        const isLoopback = host === 'localhost' || host === '127.0.0.1' || host === '::1';
         if (devUrl) {
           const devParsed = new URL(devUrl);
-          if (host === devParsed.hostname) {
+          const isDevLoopback = devParsed.hostname === 'localhost' || devParsed.hostname === '127.0.0.1' || devParsed.hostname === '::1';
+          if ((isDevLoopback && isLoopback) || host === devParsed.hostname) {
             callback({ cancel: false });
             return;
           }
@@ -214,6 +208,15 @@ app.whenReady().then(() => {
       return new Response('Internal error', { status: 500 });
     }
   });
+
+  // Register IPC handlers once per process lifecycle to prevent duplicate handler exceptions
+  registerAppHandlers();
+  registerFileHandlers();
+  registerLLMHandlers(() => mainWindow);
+  registerImageHandlers();
+  registerSettingsHandlers();
+  registerOrchestratorHandlers(() => mainWindow);
+  registerPolyforkHandlers();
 
   createWindow();
   setupNetworkGuard();

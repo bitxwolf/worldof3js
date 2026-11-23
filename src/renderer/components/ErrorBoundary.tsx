@@ -72,3 +72,51 @@ export class ViewportErrorBoundary extends Component<ErrorBoundaryProps, ErrorBo
     return this.props.children;
   }
 }
+
+interface ModalErrorBoundaryProps {
+  children: ReactNode;
+  fallbackTitle?: string;
+  onReset?: () => void;
+}
+
+export class ModalErrorBoundary extends Component<ModalErrorBoundaryProps, ErrorBoundaryState> {
+  state: ErrorBoundaryState = { hasError: false, error: null };
+
+  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo): void {
+    console.error('[ModalErrorBoundary] Caught error:', error, info);
+  }
+
+  handleDismiss = (): void => {
+    this.setState({ hasError: false, error: null });
+    this.props.onReset?.();
+  };
+
+  render(): ReactNode {
+    if (this.state.hasError) {
+      return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="bg-gray-900 border border-red-500/30 rounded-xl p-6 max-w-md w-full shadow-2xl text-center space-y-4">
+            <div className="text-3xl text-red-400">⚠️</div>
+            <h3 className="text-base font-semibold text-white">
+              {this.props.fallbackTitle ?? 'Component Error'}
+            </h3>
+            <p className="text-xs text-gray-400">
+              {this.state.error?.message ?? 'An unexpected error occurred in this dialog.'}
+            </p>
+            <button
+              onClick={this.handleDismiss}
+              className="px-4 py-1.5 rounded-lg bg-gray-800 hover:bg-gray-700 text-white text-xs font-medium border border-white/10 transition"
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}

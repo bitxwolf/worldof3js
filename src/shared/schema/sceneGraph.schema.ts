@@ -158,6 +158,8 @@ export const AppSettingsSchema = z.object({
   anthropicModel: z.string().default(''),
   openaiModelList: z.array(z.string()).default([]),
   anthropicModelList: z.array(z.string()).default([]),
+  agentModelOverrides: z.record(z.any()).optional(),
+  generationMode: z.enum(['detailed', 'quick']).optional(),
 }).strict();
 
 export type SceneGraph = z.infer<typeof SceneGraphSchema>;

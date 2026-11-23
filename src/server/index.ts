@@ -229,8 +229,8 @@ app.post('/api/graph/query-radius', async (req, res) => {
   }
 });
 
-// Serve renderer for all other routes (client-side routing)
-app.get('*', (_req, res) => {
+// Serve renderer for all other routes (client-side routing in Express 5)
+app.get('/{*splat}', (_req, res) => {
   res.sendFile(path.join(__dirname, '../../out/renderer/index.html'));
 });
 

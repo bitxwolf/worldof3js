@@ -7,7 +7,7 @@ import { SettingsModal } from './components/Settings/SettingsModal';
 import { WorldLibraryModal } from './components/WorldLibrary/WorldLibraryModal';
 import { PolyforkExplorer } from './components/Polyfork/PolyforkExplorer';
 import { JSONInspector } from './components/Editor/JSONInspector';
-import { ViewportErrorBoundary } from './components/ErrorBoundary';
+import { ViewportErrorBoundary, ModalErrorBoundary } from './components/ErrorBoundary';
 import { useWorldStore } from './store/worldStore';
 import { DocumentUploader } from './components/Editor/DocumentUploader';
 import { ImageUploader } from './components/Editor/ImageUploader';
@@ -112,13 +112,19 @@ const App = () => {
       </div>
 
       {/* Modal Settings */}
-      <SettingsModal />
+      <ModalErrorBoundary fallbackTitle="Settings Error">
+        <SettingsModal />
+      </ModalErrorBoundary>
 
       {/* Modal World Library & Export */}
-      <WorldLibraryModal />
+      <ModalErrorBoundary fallbackTitle="World Library Error">
+        <WorldLibraryModal />
+      </ModalErrorBoundary>
 
       {/* Polyfork 3D Asset Explorer Drawer */}
-      <PolyforkExplorer />
+      <ModalErrorBoundary fallbackTitle="Polyfork Explorer Error">
+        <PolyforkExplorer />
+      </ModalErrorBoundary>
     </div>
   );
 };

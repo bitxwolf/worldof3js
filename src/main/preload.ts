@@ -1,5 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron';
-import * as electron from 'electron';
+import electron, { contextBridge, ipcRenderer } from 'electron';
 import { IPC_CHANNELS } from '../shared/constants';
 
 contextBridge.exposeInMainWorld('electronAPI', {

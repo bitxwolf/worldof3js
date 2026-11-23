@@ -1,8 +1,11 @@
-import { app, safeStorage } from 'electron';
+import * as electronModule from 'electron';
 import Store from 'electron-store';
 import * as fs from 'fs';
 import * as path from 'path';
 import type { AppSettings } from '../../shared/ipc.types';
+
+const app = (electronModule as any)?.app ?? (electronModule as any)?.default?.app ?? null;
+const safeStorage = (electronModule as any)?.safeStorage ?? (electronModule as any)?.default?.safeStorage ?? null;
 
 function getElectronApp(): { isPackaged: boolean; getAppPath: () => string } | null {
   try {
@@ -84,9 +87,11 @@ const initialModel =
 
 // Store defaults: NEVER put plaintext secrets (like initialApiKey) in store defaults,
 // as electron-store writes defaults to orbis-config.json in plaintext on disk.
+const isElectron = !!(app && typeof app.getPath === 'function');
 const store = new Store<AppSettings>({
   name: 'orbis-config',
   clearInvalidConfig: true,
+  ...(isElectron ? {} : { cwd: path.resolve('.') }),
   defaults: {
     apiKey: '',
     model: initialModel,

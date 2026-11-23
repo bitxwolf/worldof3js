@@ -8,18 +8,19 @@ function hasPrototypePollution(obj: unknown): boolean {
   if (typeof obj !== 'object' || obj === null) {
     return false;
   }
-  const dangerKeys = ['__proto__', 'constructor', 'prototype'];
+  const dangerKeys = new Set(['__proto__', 'constructor', 'prototype']);
+  for (const key of Object.getOwnPropertyNames(obj)) {
+    if (dangerKeys.has(key)) {
+      return true;
+    }
+  }
   for (const key of dangerKeys) {
     if (Object.prototype.hasOwnProperty.call(obj, key)) {
       return true;
     }
   }
-  for (const key of Object.getOwnPropertyNames(obj)) {
-    if (dangerKeys.includes(key)) {
-      return true;
-    }
-  }
-  for (const val of Object.values(obj as Record<string, unknown>)) {
+  for (const key of Object.keys(obj as Record<string, unknown>)) {
+    const val = (obj as Record<string, unknown>)[key];
     if (typeof val === 'object' && val !== null && hasPrototypePollution(val)) {
       return true;
     }
@@ -72,16 +73,7 @@ export function registerAppHandlers(): void {
           };
         }
 
-        const rawSettings =
-          typeof settings === 'object' && settings !== null
-            ? { ...(settings as Record<string, unknown>) }
-            : {};
-        const agentModelOverrides = rawSettings.agentModelOverrides;
-        const generationMode = rawSettings.generationMode;
-        delete rawSettings.agentModelOverrides;
-        delete rawSettings.generationMode;
-
-        const parseResult = AppSettingsSchema.partial().safeParse(rawSettings);
+        const parseResult = AppSettingsSchema.partial().safeParse(settings);
         if (!parseResult.success) {
           return {
             success: false,
@@ -89,17 +81,7 @@ export function registerAppHandlers(): void {
           };
         }
 
-        const dataToSave: Partial<AppSettings> = {
-          ...parseResult.data,
-        };
-        if (agentModelOverrides !== undefined && typeof agentModelOverrides === 'object') {
-          dataToSave.agentModelOverrides = agentModelOverrides as any;
-        }
-        if (generationMode !== undefined && typeof generationMode === 'string') {
-          dataToSave.generationMode = generationMode as any;
-        }
-
-        StoreService.setSettings(dataToSave);
+        StoreService.setSettings(parseResult.data);
         return { success: true, data: undefined };
       } catch (err: unknown) {
         const error = err instanceof Error ? err : new Error(String(err));

@@ -715,6 +715,16 @@ export const ThreeViewport = () => {
     renderer.toneMappingExposure = 1.1;
     rendererRef.current = renderer;
 
+    const handleContextLost = (e: Event) => {
+      e.preventDefault();
+      console.warn('[ThreeViewport] WebGL context lost.');
+    };
+    const handleContextRestored = () => {
+      console.info('[ThreeViewport] WebGL context restored.');
+    };
+    canvas.addEventListener('webglcontextlost', handleContextLost);
+    canvas.addEventListener('webglcontextrestored', handleContextRestored);
+
     // 4. OrbitControls
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
@@ -1186,6 +1196,8 @@ export const ThreeViewport = () => {
       cancelAnimationFrame(animId);
       resizeObserver.disconnect();
       canvas.removeEventListener('pointerdown', onPointerDown);
+      canvas.removeEventListener('webglcontextlost', handleContextLost);
+      canvas.removeEventListener('webglcontextrestored', handleContextRestored);
       controls.dispose();
       weatherSystemRef.current?.dispose();
       weatherSystemRef.current = null;

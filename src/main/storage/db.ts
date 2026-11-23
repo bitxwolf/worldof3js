@@ -2,20 +2,24 @@
  * Opens and initializes the world.db SQLite database.
  * Only import this from src/main — never from src/shared or src/renderer.
  */
+import { createRequire } from 'node:module';
+import path from 'path';
 import type Database from 'better-sqlite3';
+
+const require = createRequire(import.meta.url);
 
 let _db: Database.Database | null = null;
 
 function getDbPath(): string {
   try {
-    const { app } = require('electron') as typeof import('electron');
-    const path = require('path') as typeof import('path');
-    return path.join(app.getPath('userData'), 'world.db');
+    const electron = require('electron');
+    if (typeof electron === 'object' && electron !== null && electron.app && typeof electron.app.getPath === 'function') {
+      return path.join(electron.app.getPath('userData'), 'world.db');
+    }
   } catch {
-    // Express server mode — store next to the process
-    const path = require('path') as typeof import('path');
-    return path.join(process.cwd(), 'world.db');
+    // Express server or pure Node mode — store next to the process
   }
+  return path.join(process.cwd(), 'world.db');
 }
 
 export function getDb(): Database.Database {
