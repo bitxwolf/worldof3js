@@ -7,15 +7,7 @@
 
 import * as THREE from 'three';
 import { presetRegistry } from '../presets/PresetRegistry';
-import { AssetRegistry } from '../AssetRegistry';
-
-let sharedDefaultAssetRegistry: AssetRegistry | null = null;
-function getDefaultAssetRegistry(): AssetRegistry {
-  if (!sharedDefaultAssetRegistry) {
-    sharedDefaultAssetRegistry = new AssetRegistry();
-  }
-  return sharedDefaultAssetRegistry;
-}
+import { AssetRegistry, getDefaultAssetRegistry } from '../AssetRegistry';
 
 // ── Tiny seeded PRNG (mulberry32) ─────────────────────────────────────────────
 // Lets us get the same "random" variation for the same world seed,

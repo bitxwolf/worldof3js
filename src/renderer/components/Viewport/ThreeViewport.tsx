@@ -19,6 +19,8 @@ import { InteractHint } from '../HUD/InteractHint';
 import { ProceduralAssetLibrary } from '../../engine/assets/ProceduralAssetLibrary';
 import { imageToGeometry } from '../../engine/assets/img2threejsAdapter';
 import { presetRegistry } from '../../engine/presets/PresetRegistry';
+import { getDefaultAssetRegistry } from '../../engine/AssetRegistry';
+import { sharedClipsFor } from '../../engine/NPCSystem';
 import { useInventoryStore } from '../../store/inventoryStore';
 import { EventSystem } from '../../engine/EventSystem';
 import { WeatherSystem, type WeatherType } from '../../engine/WeatherSystem';
@@ -104,6 +106,7 @@ export const ThreeViewport = () => {
   const weatherSystemRef = useRef<WeatherSystem | null>(null);
   const [isCircleSelectActive, setIsCircleSelectActive] = useState(false);
   const circleSelectToolRef = useRef<CircleSelectTool | null>(null);
+  const animationMixersRef = useRef<THREE.AnimationMixer[]>([]);
 
   // Movement in walk mode
   const moveKeysRef = useRef({ forward: false, backward: false, left: false, right: false });
@@ -333,6 +336,12 @@ export const ThreeViewport = () => {
   };
 
   const disposeHierarchy = (obj: THREE.Object3D) => {
+    if ((obj as any).userData?.mixer) {
+      const mixer = (obj as any).userData.mixer as THREE.AnimationMixer;
+      mixer.stopAllAction();
+      const idx = animationMixersRef.current.indexOf(mixer);
+      if (idx !== -1) animationMixersRef.current.splice(idx, 1);
+    }
     if ((obj as THREE.Mesh).geometry) {
       (obj as THREE.Mesh).geometry.dispose();
     }
@@ -357,6 +366,91 @@ export const ThreeViewport = () => {
       obj.remove(child);
       disposeHierarchy(child);
     }
+  };
+
+  const createObjectFallbackMesh = (obj: {
+    id?: string;
+    name?: string;
+    type?: string;
+    position?: [number, number, number] | number[];
+    collidable?: boolean;
+    interactable?: boolean;
+    pickable?: boolean;
+    locked?: boolean;
+    description?: string;
+  }): THREE.Object3D => {
+    const typeLower = (obj.type || '').toLowerCase();
+    const nameLower = (obj.name || '').toLowerCase();
+    let mesh: THREE.Object3D;
+
+    if (
+      typeLower.includes('bonfire') ||
+      nameLower.includes('bonfire') ||
+      typeLower.includes('campfire') ||
+      typeLower.includes('fire')
+    ) {
+      const fireGroup = new THREE.Group();
+      fireGroup.name = obj.name || 'Bonfire';
+
+      const logMat = new THREE.MeshStandardMaterial({ color: 0x4a2e18, roughness: 0.9 });
+      for (let i = 0; i < 4; i++) {
+        const logMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.15, 1.4, 6), logMat);
+        logMesh.rotation.z = Math.PI / 2;
+        logMesh.rotation.y = (i * Math.PI) / 4;
+        logMesh.position.y = 0.15;
+        fireGroup.add(logMesh);
+      }
+
+      const flameMat = new THREE.MeshBasicMaterial({ color: 0xff5500 });
+      const flameMesh = new THREE.Mesh(new THREE.ConeGeometry(0.5, 1.1, 7), flameMat);
+      flameMesh.position.y = 0.6;
+      fireGroup.add(flameMesh);
+
+      const fireLight = new THREE.PointLight(0xff7722, 2.5, 15);
+      fireLight.position.y = 1.0;
+      fireGroup.add(fireLight);
+
+      mesh = fireGroup;
+    } else {
+      let geo: THREE.BufferGeometry;
+      let color = 0x8b5cf6;
+      if (
+        typeLower.includes('structure') ||
+        typeLower.includes('building') ||
+        typeLower.includes('tower') ||
+        typeLower.includes('hut')
+      ) {
+        geo = new THREE.BoxGeometry(3, 4, 3);
+        color = 0x64748b;
+      } else if (typeLower.includes('foliage') || typeLower.includes('tree')) {
+        geo = new THREE.ConeGeometry(1.2, 3.5, 6);
+        color = 0x15803d;
+      } else if (typeLower.includes('item') || typeLower.includes('key') || typeLower.includes('gem')) {
+        geo = new THREE.DodecahedronGeometry(0.4);
+        color = 0xf59e0b;
+      } else {
+        geo = new THREE.BoxGeometry(1.5, 1.5, 1.5);
+        color = 0xa855f7;
+      }
+      mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color, roughness: 0.7 }));
+    }
+
+    if (obj.position && obj.position.length >= 3) {
+      mesh.position.set(obj.position[0], obj.position[1], obj.position[2]);
+    }
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    mesh.userData = {
+      id: obj.id,
+      name: obj.name,
+      type: obj.type,
+      collidable: obj.collidable ?? true,
+      interactable: obj.interactable ?? true,
+      pickable: obj.pickable ?? (obj.type === 'item'),
+      locked: obj.locked ?? false,
+      description: obj.description || '',
+    };
+    return mesh;
   };
 
   useEffect(() => {
@@ -921,6 +1015,14 @@ export const ThreeViewport = () => {
         weatherSystemRef.current.update(delta, camera.position);
       }
 
+      // Tick character and model animation mixers
+      if (animationMixersRef.current.length > 0) {
+        for (let i = animationMixersRef.current.length - 1; i >= 0; i--) {
+          const mixer = animationMixersRef.current[i];
+          mixer.update(delta);
+        }
+      }
+
       // FPS Calculation (throttled to 1Hz)
       frameCount++;
       const now = performance.now();
@@ -1270,9 +1372,10 @@ export const ThreeViewport = () => {
       }
     };
 
-    // Live partial world patch from UpdatePromptBar (Task 4.4)
+    // Live partial world patch from UpdatePromptBar and PolyforkExplorer
     const handleApplyWorldPatch = (e: Event) => {
-      const { partial } = (e as CustomEvent<{ partial: Partial<SceneGraph> }>).detail || {};
+      const detail = ((e as CustomEvent).detail || {}) as { partial?: Partial<SceneGraph> } & Partial<SceneGraph>;
+      const partial = detail.partial || detail;
       const scene = sceneRef.current;
       const group = sceneGraphGroupRef.current;
       if (!partial || !scene || !group) return;
@@ -1292,80 +1395,41 @@ export const ThreeViewport = () => {
             disposeHierarchy(existing);
           }
 
-          const typeLower = (obj.type || '').toLowerCase();
-          const nameLower = (obj.name || '').toLowerCase();
-          let mesh: THREE.Object3D;
-
-          if (
-            typeLower.includes('bonfire') ||
-            nameLower.includes('bonfire') ||
-            typeLower.includes('campfire') ||
-            typeLower.includes('fire')
-          ) {
-            const fireGroup = new THREE.Group();
-            fireGroup.name = obj.name || 'Bonfire';
-
-            // Logs
-            const logMat = new THREE.MeshStandardMaterial({ color: 0x4a2e18, roughness: 0.9 });
-            for (let i = 0; i < 4; i++) {
-              const logMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.15, 1.4, 6), logMat);
-              logMesh.rotation.z = Math.PI / 2;
-              logMesh.rotation.y = (i * Math.PI) / 4;
-              logMesh.position.y = 0.15;
-              fireGroup.add(logMesh);
-            }
-
-            // Glowing flames
-            const flameMat = new THREE.MeshBasicMaterial({ color: 0xff5500 });
-            const flameMesh = new THREE.Mesh(new THREE.ConeGeometry(0.5, 1.1, 7), flameMat);
-            flameMesh.position.y = 0.6;
-            fireGroup.add(flameMesh);
-
-            // Flickering light
-            const fireLight = new THREE.PointLight(0xff7722, 2.5, 15);
-            fireLight.position.y = 1.0;
-            fireGroup.add(fireLight);
-
-            mesh = fireGroup;
+          const assetTarget = obj.assetId || obj.modelUrl;
+          if (assetTarget) {
+            void getDefaultAssetRegistry()
+              .loadModel(assetTarget)
+              .then(async (model) => {
+                if (obj.position && obj.position.length >= 3) {
+                  model.position.set(obj.position[0], obj.position[1], obj.position[2]);
+                }
+                if (obj.rotation) model.rotation.set(...obj.rotation);
+                if (obj.scale) model.scale.set(...obj.scale);
+                model.name = obj.name || `Model_${obj.id}`;
+                model.userData = {
+                  id: obj.id,
+                  name: obj.name,
+                  type: obj.type,
+                  assetId: obj.assetId,
+                  modelUrl: obj.modelUrl,
+                  collidable: obj.collidable ?? true,
+                  interactable: obj.interactable ?? true,
+                  pickable: obj.pickable ?? false,
+                  locked: obj.locked ?? false,
+                };
+                group.add(model);
+                if (sceneRef.current) syncSceneHierarchy(sceneRef.current);
+              })
+              .catch((err) => {
+                console.warn(`[ThreeViewport] Failed to load model for ${obj.id}:`, err);
+                const fallbackMesh = createObjectFallbackMesh(obj);
+                group.add(fallbackMesh);
+                if (sceneRef.current) syncSceneHierarchy(sceneRef.current);
+              });
           } else {
-            let geo: THREE.BufferGeometry;
-            let color = 0x8b5cf6;
-            if (
-              typeLower.includes('structure') ||
-              typeLower.includes('building') ||
-              typeLower.includes('tower') ||
-              typeLower.includes('hut')
-            ) {
-              geo = new THREE.BoxGeometry(3, 4, 3);
-              color = 0x64748b;
-            } else if (typeLower.includes('foliage') || typeLower.includes('tree')) {
-              geo = new THREE.ConeGeometry(1.2, 3.5, 6);
-              color = 0x15803d;
-            } else if (typeLower.includes('item') || typeLower.includes('key') || typeLower.includes('gem')) {
-              geo = new THREE.DodecahedronGeometry(0.4);
-              color = 0xf59e0b;
-            } else {
-              geo = new THREE.BoxGeometry(1.5, 1.5, 1.5);
-              color = 0xa855f7;
-            }
-            mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color, roughness: 0.7 }));
+            const mesh = createObjectFallbackMesh(obj);
+            group.add(mesh);
           }
-
-          if (obj.position && obj.position.length >= 3) {
-            mesh.position.set(obj.position[0], obj.position[1], obj.position[2]);
-          }
-          mesh.castShadow = true;
-          mesh.receiveShadow = true;
-          mesh.userData = {
-            id: obj.id,
-            name: obj.name,
-            type: obj.type,
-            collidable: obj.collidable ?? true,
-            interactable: obj.interactable ?? true,
-            pickable: obj.pickable ?? (obj.type === 'item'),
-            locked: obj.locked ?? false,
-          };
-          group.add(mesh);
         }
       }
 
@@ -1380,11 +1444,62 @@ export const ThreeViewport = () => {
             group.remove(existing);
             disposeHierarchy(existing);
           }
-          const npcMesh = buildNpcCharacter();
-          npcMesh.name = `NPC_${char.name.replace(/\s+/g, '_')}`;
-          npcMesh.userData = { ...npcMesh.userData, id: char.id, name: char.name };
-          npcMesh.position.set(char.position[0], char.position[1] || 0, char.position[2]);
-          group.add(npcMesh);
+
+          const modelTarget =
+            char.modelId ||
+            (char.assetUrl && char.assetUrl.startsWith('polyfork:') ? char.assetUrl : null);
+
+          if (modelTarget) {
+            void getDefaultAssetRegistry()
+              .loadModel(modelTarget)
+              .then(async (characterModel) => {
+                characterModel.position.set(char.position[0], char.position[1] || 0, char.position[2]);
+                characterModel.name = `NPC_${char.name.replace(/\s+/g, '_')}`;
+                characterModel.userData = {
+                  ...char,
+                  id: char.id,
+                  name: char.name,
+                  type: 'npc',
+                  isNPC: true,
+                };
+
+                try {
+                  const sharedClips = await sharedClipsFor(characterModel);
+                  const ownAnimations = (characterModel.userData.animations as THREE.AnimationClip[]) || [];
+                  const ownNames = new Set(ownAnimations.map((a) => a.name));
+                  const allClips = [...ownAnimations, ...sharedClips.filter((c) => !ownNames.has(c.name))];
+
+                  if (allClips.length > 0) {
+                    const mixer = new THREE.AnimationMixer(characterModel);
+                    const idleClip = allClips.find((c) => c.name.toLowerCase() === 'idle') || allClips[0];
+                    const action = mixer.clipAction(idleClip);
+                    action.play();
+                    animationMixersRef.current.push(mixer);
+                    characterModel.userData.mixer = mixer;
+                  }
+                } catch (clipErr) {
+                  console.warn('[ThreeViewport] Animation retargeting failed:', clipErr);
+                }
+
+                group.add(characterModel);
+                if (sceneRef.current) syncSceneHierarchy(sceneRef.current);
+              })
+              .catch((err) => {
+                console.warn(`[ThreeViewport] Failed to load Polyfork character model (${modelTarget}):`, err);
+                const npcMesh = buildNpcCharacter();
+                npcMesh.name = `NPC_${char.name.replace(/\s+/g, '_')}`;
+                npcMesh.userData = { ...npcMesh.userData, id: char.id, name: char.name, type: 'npc', isNPC: true };
+                npcMesh.position.set(char.position[0], char.position[1] || 0, char.position[2]);
+                group.add(npcMesh);
+                if (sceneRef.current) syncSceneHierarchy(sceneRef.current);
+              });
+          } else {
+            const npcMesh = buildNpcCharacter();
+            npcMesh.name = `NPC_${char.name.replace(/\s+/g, '_')}`;
+            npcMesh.userData = { ...npcMesh.userData, id: char.id, name: char.name, type: 'npc', isNPC: true };
+            npcMesh.position.set(char.position[0], char.position[1] || 0, char.position[2]);
+            group.add(npcMesh);
+          }
         }
       }
 
@@ -1495,57 +1610,52 @@ export const ThreeViewport = () => {
         }
       }
 
-      // Spawn graph objects as fallback meshes
+      // Spawn graph objects as fallback meshes or Polyfork models
       if (sceneGraph.objects) {
         for (const obj of sceneGraph.objects) {
           // Skip if procedural code already placed this entity
           let alreadyBuilt = false;
           group.traverse((child) => {
-            if (child.userData?.id === obj.id || child.name === obj.id) alreadyBuilt = true;
+            if (!alreadyBuilt && (child.userData?.id === obj.id || child.name === obj.id)) alreadyBuilt = true;
           });
           if (alreadyBuilt) continue;
 
-          let geo: THREE.BufferGeometry;
-          let color = 0x8b5cf6;
-          switch (obj.type) {
-            case 'structure': case 'building': geo = new THREE.BoxGeometry(3, 4, 3); color = 0x64748b; break;
-            case 'foliage': geo = new THREE.ConeGeometry(1.2, 3.5, 6); color = 0x15803d; break;
-            case 'item': geo = new THREE.DodecahedronGeometry(0.4); color = 0xf59e0b; break;
-            default: geo = new THREE.BoxGeometry(1.5, 1.5, 1.5); color = 0xa855f7;
+          const assetTarget = obj.assetId || obj.modelUrl;
+          if (assetTarget) {
+            void getDefaultAssetRegistry()
+              .loadModel(assetTarget)
+              .then((model) => {
+                if (obj.position && obj.position.length >= 3) {
+                  model.position.set(obj.position[0], obj.position[1], obj.position[2]);
+                }
+                if (obj.rotation) model.rotation.set(...obj.rotation);
+                if (obj.scale) model.scale.set(...obj.scale);
+                model.name = obj.name || `Model_${obj.id}`;
+                model.userData = {
+                  id: obj.id,
+                  name: obj.name,
+                  type: obj.type,
+                  assetId: obj.assetId,
+                  modelUrl: obj.modelUrl,
+                  collidable: obj.collidable ?? true,
+                  interactable: obj.interactable ?? true,
+                  pickable: obj.pickable ?? false,
+                  locked: obj.locked ?? false,
+                };
+                group.add(model);
+                if (sceneRef.current) syncSceneHierarchy(sceneRef.current);
+              })
+              .catch((err) => {
+                console.warn(`[ThreeViewport] Failed to load model for ${obj.id}:`, err);
+                const fallbackMesh = createObjectFallbackMesh(obj);
+                group.add(fallbackMesh);
+                if (sceneRef.current) syncSceneHierarchy(sceneRef.current);
+              });
+            continue;
           }
-          const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.7 });
-          const mesh = new THREE.Mesh(geo, mat);
-          mesh.position.set(...obj.position);
-          mesh.castShadow = true;
-          mesh.receiveShadow = true;
 
-          const isItem = obj.type === 'item' || obj.id?.includes('item') || obj.name?.toLowerCase().includes('item');
-          const isDoor =
-            obj.type === 'door' ||
-            obj.id?.includes('door') ||
-            obj.name?.toLowerCase().includes('door') ||
-            obj.locked !== undefined;
-
-          const currentFlags = useWorldStore.getState().flags || {};
-          const isAlreadyUnlocked = Boolean(
-            currentFlags[`${obj.id}_unlocked`] ||
-            (isDoor && currentFlags.door_unlocked)
-          );
-
-          mesh.userData = {
-            id: obj.id,
-            name: obj.name,
-            type: obj.type,
-            collidable: isAlreadyUnlocked ? false : (obj.collidable ?? !isItem),
-            interactable: obj.interactable ?? (isDoor || isItem),
-            pickable: obj.pickable ?? isItem,
-            locked: isAlreadyUnlocked ? false : (obj.locked ?? (isDoor ? true : false)),
-            description: obj.description || '',
-          };
-          if (isAlreadyUnlocked && isDoor) {
-            mesh.rotation.y += Math.PI / 2;
-          }
-          group.add(mesh);
+          const fallbackMesh = createObjectFallbackMesh(obj);
+          group.add(fallbackMesh);
         }
       }
 
@@ -1554,6 +1664,61 @@ export const ThreeViewport = () => {
         const charImages = uploadedImages.filter((img) => (img.tag || '').toLowerCase() === 'character');
         for (let i = 0; i < sceneGraph.characters.length; i++) {
           const char = sceneGraph.characters[i];
+          const modelTarget =
+            char.modelId ||
+            (char.assetUrl && char.assetUrl.startsWith('polyfork:') ? char.assetUrl : null);
+
+          if (modelTarget) {
+            void getDefaultAssetRegistry()
+              .loadModel(modelTarget)
+              .then(async (characterModel) => {
+                const elev = useUIStore.getState().tuningParams.elevation;
+                const currentSeed = useUIStore.getState().seed;
+                const targetY = char.position[1] !== undefined && char.position[1] !== 0
+                  ? char.position[1]
+                  : getElevation(char.position[0], char.position[2], currentSeed, elev);
+                characterModel.position.set(char.position[0], targetY, char.position[2]);
+                characterModel.name = `NPC_${char.name.replace(/\s+/g, '_')}`;
+                characterModel.userData = {
+                  ...char,
+                  id: char.id,
+                  name: char.name,
+                  type: 'npc',
+                  isNPC: true,
+                };
+
+                try {
+                  const sharedClips = await sharedClipsFor(characterModel);
+                  const ownAnimations = (characterModel.userData.animations as THREE.AnimationClip[]) || [];
+                  const ownNames = new Set(ownAnimations.map((a) => a.name));
+                  const allClips = [...ownAnimations, ...sharedClips.filter((c) => !ownNames.has(c.name))];
+
+                  if (allClips.length > 0) {
+                    const mixer = new THREE.AnimationMixer(characterModel);
+                    const idleClip = allClips.find((c) => c.name.toLowerCase() === 'idle') || allClips[0];
+                    const action = mixer.clipAction(idleClip);
+                    action.play();
+                    animationMixersRef.current.push(mixer);
+                    characterModel.userData.mixer = mixer;
+                  }
+                } catch {
+                  // Non-fatal animation error
+                }
+
+                group.add(characterModel);
+                if (sceneRef.current) syncSceneHierarchy(sceneRef.current);
+              })
+              .catch(() => {
+                const npcMesh = buildNpcCharacter();
+                npcMesh.name = `NPC_${char.name.replace(/\s+/g, '_')}`;
+                npcMesh.userData = { ...npcMesh.userData, id: char.id, name: char.name, type: 'npc', isNPC: true };
+                npcMesh.position.set(char.position[0], 0, char.position[2]);
+                group.add(npcMesh);
+                if (sceneRef.current) syncSceneHierarchy(sceneRef.current);
+              });
+            continue;
+          }
+
           const charPortrait =
             char.image ||
             (char.assetUrl && char.assetUrl.startsWith('data:image') ? char.assetUrl : null) ||
@@ -1573,14 +1738,14 @@ export const ThreeViewport = () => {
                 console.warn(`[ThreeViewport] Failed to generate avatar for ${char.name}:`, err);
                 const npcMesh = buildNpcCharacter();
                 npcMesh.name = `NPC_${char.name.replace(/\s+/g, '_')}`;
-                npcMesh.userData = { ...npcMesh.userData, id: char.id, name: char.name };
+                npcMesh.userData = { ...npcMesh.userData, id: char.id, name: char.name, type: 'npc', isNPC: true };
                 npcMesh.position.set(char.position[0], 0, char.position[2]);
                 group.add(npcMesh);
               });
           } else {
             const npcMesh = buildNpcCharacter();
             npcMesh.name = `NPC_${char.name.replace(/\s+/g, '_')}`;
-            npcMesh.userData = { ...npcMesh.userData, id: char.id, name: char.name };
+            npcMesh.userData = { ...npcMesh.userData, id: char.id, name: char.name, type: 'npc', isNPC: true };
             npcMesh.position.set(char.position[0], 0, char.position[2]);
             group.add(npcMesh);
           }

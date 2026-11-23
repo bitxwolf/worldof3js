@@ -46,26 +46,55 @@ export const useWorldStore = create<WorldState>((set) => ({
 
   patchSceneGraph: (partial) =>
     set((state) => {
-      if (!state.sceneGraph) return state;
+      const baseGraph: SceneGraph = state.sceneGraph || {
+        version: '1.0',
+        world: {
+          name: 'World',
+          description: 'Custom World',
+          biome: 'forest',
+          timeOfDay: 'morning',
+          weather: 'clear',
+          scale: 'medium',
+        },
+        player: {
+          spawn: state.playerPosition || [0, 1.7, 0],
+          startPosition: state.playerPosition || [0, 1.7, 0],
+          movementSpeed: 4.0,
+          jumpHeight: 1.5,
+        },
+        zones: [],
+        characters: [],
+        objects: [],
+        lights: [],
+        events: [],
+        skybox: { type: 'gradient', topColor: '#0a0a1a', bottomColor: '#2a2a4a' },
+        atmosphere: {
+          fogDensity: 0.015,
+          fogColor: '#1a1a2e',
+          ambientIntensity: 0.5,
+          sunColor: '#fff4e0',
+        },
+        flags: {},
+      };
       return {
         sceneGraph: {
-          ...state.sceneGraph,
+          ...baseGraph,
           ...partial,
           objects: partial.objects
-            ? [...state.sceneGraph.objects.filter((o) => !partial.objects?.some((po) => po.id === o.id)), ...partial.objects]
-            : state.sceneGraph.objects,
+            ? [...baseGraph.objects.filter((o) => !partial.objects?.some((po) => po.id === o.id)), ...partial.objects]
+            : baseGraph.objects,
           characters: partial.characters
-            ? [...state.sceneGraph.characters.filter((c) => !partial.characters?.some((pc) => pc.id === c.id)), ...partial.characters]
-            : state.sceneGraph.characters,
+            ? [...baseGraph.characters.filter((c) => !partial.characters?.some((pc) => pc.id === c.id)), ...partial.characters]
+            : baseGraph.characters,
           zones: partial.zones
-            ? [...state.sceneGraph.zones.filter((z) => !partial.zones?.some((pz) => pz.id === z.id)), ...partial.zones]
-            : state.sceneGraph.zones,
+            ? [...baseGraph.zones.filter((z) => !partial.zones?.some((pz) => pz.id === z.id)), ...partial.zones]
+            : baseGraph.zones,
           lights: partial.lights
-            ? [...state.sceneGraph.lights.filter((l) => !partial.lights?.some((pl) => pl.id === l.id)), ...partial.lights]
-            : state.sceneGraph.lights,
+            ? [...baseGraph.lights.filter((l) => !partial.lights?.some((pl) => pl.id === l.id)), ...partial.lights]
+            : baseGraph.lights,
           events: partial.events
-            ? [...state.sceneGraph.events.filter((e) => !partial.events?.some((pe) => pe.id === e.id)), ...partial.events]
-            : state.sceneGraph.events,
+            ? [...baseGraph.events.filter((e) => !partial.events?.some((pe) => pe.id === e.id)), ...partial.events]
+            : baseGraph.events,
         },
       };
     }),

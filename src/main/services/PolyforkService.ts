@@ -87,7 +87,11 @@ export class PolyforkService {
     const dir = this.getModelsDir();
     let sanitized = filenameOrId.replace(/^polyfork:\/\/?/, '').replace(/^polyfork:/, '');
     sanitized = path.basename(sanitized);
-    const resolved = path.resolve(dir, sanitized);
+    let resolved = path.resolve(dir, sanitized);
+
+    if (!fsSync.existsSync(resolved) && fsSync.existsSync(`${resolved}.glb`)) {
+      resolved = `${resolved}.glb`;
+    }
 
     if (!resolved.startsWith(path.resolve(dir))) {
       throw new Error(`Path traversal attempt detected: ${filenameOrId}`);

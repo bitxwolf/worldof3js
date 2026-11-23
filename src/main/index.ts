@@ -13,6 +13,9 @@ import { registerOrchestratorHandlers } from './ipc/orchestrator.handler';
 import { registerPolyforkHandlers } from './ipc/polyfork.handler';
 import { polyforkService } from './services/PolyforkService';
 
+// Append Chromium switches to prevent Crashpad errors on Windows
+app.commandLine.appendSwitch('disable-crash-reporter');
+
 // Register custom protocol polyfork:// for safe model streaming
 protocol.registerSchemesAsPrivileged([
   {

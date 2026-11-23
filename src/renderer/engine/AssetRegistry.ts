@@ -281,6 +281,15 @@ function validateHttpUrl(url: string): void {
   }
 }
 
+let sharedDefaultAssetRegistry: AssetRegistry | null = null;
+
+export function getDefaultAssetRegistry(): AssetRegistry {
+  if (!sharedDefaultAssetRegistry) {
+    sharedDefaultAssetRegistry = new AssetRegistry();
+  }
+  return sharedDefaultAssetRegistry;
+}
+
 export class AssetRegistry {
   private readonly textures = new Map<string, THREE.Texture>();
   private readonly models = new Map<string, THREE.Group>();

@@ -337,38 +337,65 @@ export const PolyforkExplorer: React.FC = () => {
     const spawnX = Math.round((playerPos[0] + 2.5) * 10) / 10;
     const spawnZ = Math.round((playerPos[2] + 2.5) * 10) / 10;
 
-    const newObj = {
-      id: `${selectedAsset.id}_${Date.now()}`,
-      name: selectedAsset.title,
-      type: selectedAsset.class || 'prop',
-      assetId,
-      position: [spawnX, 0, spawnZ] as [number, number, number],
-      collidable: true,
-      interactable: true,
-      pickable: false,
-      locked: false,
-    };
+    const isFigure =
+      selectedAsset.class === 'character' ||
+      selectedAsset.class === 'animal' ||
+      selectedAsset.class === 'creature' ||
+      selectedAsset.class === 'figure' ||
+      Boolean(selectedAsset.rigged);
+
+    const safeId = `${selectedAsset.id.replace(/[^a-zA-Z0-9_-]/g, '_')}_${Date.now()}`;
+
+    const newChar = isFigure
+      ? {
+          id: safeId,
+          name: selectedAsset.title,
+          description: `A ${selectedAsset.title} figure imported from Polyfork library.`,
+          personality: 'Curious and friendly observer.',
+          secrets: [],
+          knowledge: [],
+          position: [spawnX, 0, spawnZ] as [number, number, number],
+          behavior: 'idle' as const,
+          modelId: assetId,
+          assetUrl: assetId,
+          rigged: selectedAsset.rigged ?? true,
+        }
+      : null;
+
+    const newObj = !isFigure
+      ? {
+          id: safeId,
+          name: selectedAsset.title,
+          type: selectedAsset.class || 'prop',
+          assetId,
+          position: [spawnX, 0, spawnZ] as [number, number, number],
+          collidable: true,
+          interactable: true,
+          pickable: false,
+          locked: false,
+        }
+      : null;
+
+    const partialPatch = isFigure && newChar
+      ? { characters: [newChar] }
+      : newObj
+      ? { objects: [newObj] }
+      : {};
 
     // 1. Dispatch custom engine patch event for live rendering
     window.dispatchEvent(
       new CustomEvent('engine:apply-world-patch', {
         detail: {
-          objects: [newObj],
+          partial: partialPatch,
+          ...partialPatch,
         },
       })
     );
 
     // 2. Persist in WorldStore sceneGraph
-    const currentGraph = useWorldStore.getState().sceneGraph;
-    if (currentGraph) {
-      const updatedObjects = [...(currentGraph.objects || []), newObj];
-      useWorldStore.getState().setSceneGraph({
-        ...currentGraph,
-        objects: updatedObjects,
-      });
-    }
+    useWorldStore.getState().patchSceneGraph(partialPatch);
 
-    showNotification(`Inserted ${selectedAsset.title} into the world!`, 3000, 'success');
+    showNotification(`Imported ${selectedAsset.title} into the world!`, 3000, 'success');
   };
 
   // Copy Asset ID

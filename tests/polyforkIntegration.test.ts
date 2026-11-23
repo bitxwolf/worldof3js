@@ -205,4 +205,39 @@ describe('Polyfork End-to-End Integration', () => {
       'disallowed private/internal network target'
     );
   });
+
+  it('getDefaultAssetRegistry returns singleton AssetRegistry and supports Polyfork figures in worldStore', async () => {
+    const { getDefaultAssetRegistry } = await import('../src/renderer/engine/AssetRegistry');
+    const { useWorldStore } = await import('../src/renderer/store/worldStore');
+
+    const reg1 = getDefaultAssetRegistry();
+    const reg2 = getDefaultAssetRegistry();
+    expect(reg1).toBe(reg2);
+
+    // Reset worldStore to null
+    useWorldStore.getState().resetWorld();
+    expect(useWorldStore.getState().sceneGraph).toBeNull();
+
+    // Simulating importing a Polyfork figure (e.g. raccoon-base or guard)
+    const figureChar = {
+      id: 'char_raccoon_base_123',
+      name: 'Raccoon',
+      description: 'A Raccoon figure imported from Polyfork library.',
+      personality: 'Curious and friendly observer.',
+      secrets: [],
+      knowledge: [],
+      position: [2.5, 0, 2.5] as [number, number, number],
+      behavior: 'idle' as const,
+      modelId: 'polyfork:raccoon-base',
+      assetUrl: 'polyfork:raccoon-base',
+      rigged: true,
+    };
+
+    useWorldStore.getState().patchSceneGraph({ characters: [figureChar] });
+    const graph = useWorldStore.getState().sceneGraph;
+    expect(graph).toBeDefined();
+    expect(graph?.characters.length).toBe(1);
+    expect(graph?.characters[0].name).toBe('Raccoon');
+    expect(graph?.characters[0].modelId).toBe('polyfork:raccoon-base');
+  });
 });
