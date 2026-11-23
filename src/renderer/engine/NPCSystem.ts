@@ -259,7 +259,7 @@ export class NPCSystem {
           group.userData = { ...group.userData, ...customAvatar.userData, isCustomAvatar: true };
           console.info(`[NPCSystem] ✓ Custom avatar spawned for ${char.name}`);
         } catch (convErr) {
-          console.warn(`[NPCSystem] Portrait conversion failed for ${char.name}, using fallback humanoid:`, convErr);
+          console.warn('%s', `[NPCSystem] Portrait conversion failed for ${char.name}, using fallback humanoid:`, convErr);
           const fallback = createDefaultHumanoid();
           while (fallback.children.length > 0) {
             const child = fallback.children[0];
@@ -285,7 +285,7 @@ export class NPCSystem {
       return group;
     } catch (err) {
       // Emergency fallback — always produces a visible mesh
-      console.error(`[NPCSystem] Critical failure spawning ${char.name}:`, err);
+      console.error('%s', `[NPCSystem] Critical failure spawning ${char.name}:`, err);
       const emergency = new THREE.Mesh(
         new THREE.SphereGeometry(0.5, 8, 8),
         new THREE.MeshStandardMaterial({ color: 0xff0000, emissive: 0x880000, emissiveIntensity: 0.5 }),
