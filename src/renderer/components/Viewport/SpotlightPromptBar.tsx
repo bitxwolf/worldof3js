@@ -108,6 +108,13 @@ export const SpotlightPromptBar = () => {
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') {
       triggerWorldGeneration(promptText);
+    } else if (e.key === 'Escape') {
+      if (promptText.trim()) {
+        setPromptText('');
+      } else if (activeSelection) {
+        useOrchestratorStore.getState().clearSelection();
+      }
+      (e.target as HTMLInputElement).blur();
     }
   };
 

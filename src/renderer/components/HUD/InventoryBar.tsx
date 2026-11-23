@@ -9,10 +9,16 @@ export const InventoryBar = () => {
   // Keyboard shortcut listener: Keys 1 to 8 select corresponding slot
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Don't trigger if user is typing in an input or textarea
+      // Don't trigger if user is holding modifiers (Ctrl, Meta, Alt)
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+
+      // Don't trigger if user is typing in an input, textarea, select, or contenteditable
+      const target = e.target;
       if (
-        e.target instanceof HTMLInputElement ||
-        e.target instanceof HTMLTextAreaElement
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        target instanceof HTMLSelectElement ||
+        (target instanceof HTMLElement && target.isContentEditable)
       ) {
         return;
       }

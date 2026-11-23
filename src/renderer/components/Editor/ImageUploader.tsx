@@ -106,19 +106,41 @@ export const ImageUploader = ({
     }
   }, [onDone, onClose]);
 
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        handleDismiss();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [handleDismiss]);
+
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
         <label className="text-sm font-semibold text-gray-200">Upload Images</label>
-        {(onDone || onClose) && (
-          <button
-            type="button"
-            onClick={handleDismiss}
-            className="px-2.5 py-1 text-xs rounded bg-blue-600 hover:bg-blue-500 text-white font-medium transition cursor-pointer"
-          >
-            Done
-          </button>
-        )}
+        <div className="flex items-center gap-1.5">
+          {(onDone || onClose) && (
+            <button
+              type="button"
+              onClick={handleDismiss}
+              className="px-2.5 py-1 text-xs rounded bg-blue-600 hover:bg-blue-500 text-white font-medium transition cursor-pointer"
+            >
+              Done
+            </button>
+          )}
+          {onClose && (
+            <button
+              type="button"
+              onClick={onClose}
+              className="text-gray-400 hover:text-white px-1.5 py-0.5 rounded text-sm transition"
+              title="Close (Esc)"
+            >
+              ✕
+            </button>
+          )}
+        </div>
       </div>
 
       <div

@@ -134,7 +134,8 @@ export class CircleSelectTool {
 
   private onWheel(event: WheelEvent) {
     event.preventDefault();
-    this.updateRadius(this.radius + event.deltaY * 0.05);
+    // In standard DOM wheel events, deltaY < 0 is scroll up (expand brush), deltaY > 0 is scroll down (shrink brush)
+    this.updateRadius(this.radius - Math.sign(event.deltaY) * 2.5);
 
     // Debounce confirmSelection to prevent flooding IPC and notifications while scrolling
     if (this.wheelDebounceTimer) {

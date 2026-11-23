@@ -123,6 +123,7 @@ export const ThreeViewport = () => {
   useEffect(() => {
     if (cameraMode === 'walk' && isCircleSelectActive) {
       setIsCircleSelectActive(false);
+      useOrchestratorStore.getState().clearSelection();
     }
   }, [cameraMode, isCircleSelectActive]);
   const animationMixersRef = useRef<THREE.AnimationMixer[]>([]);
@@ -2105,6 +2106,7 @@ export const ThreeViewport = () => {
       selectedObj.position.set(selectedNode.position[0], selectedNode.position[1], selectedNode.position[2]);
       if (selectedNode.rotation) selectedObj.rotation.set(selectedNode.rotation[0], selectedNode.rotation[1], selectedNode.rotation[2]);
       if (selectedNode.scale) selectedObj.scale.set(selectedNode.scale[0], selectedNode.scale[1], selectedNode.scale[2]);
+      selectedObj.updateMatrixWorld(true);
       if (selectionBoxRef.current) {
         if ((selectedObj as THREE.Mesh).geometry || selectedObj.children.length > 0) {
           selectionBoxRef.current.setFromObject(selectedObj);
@@ -2196,27 +2198,71 @@ export const ThreeViewport = () => {
     return () => window.removeEventListener('engine:export-gltf', handleExport);
   }, []);
 
-  // Key listeners for Walk Mode
+  // Key listeners for Walk Mode & Viewport Hotkeys
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       // Ignore viewport hotkeys when modifier keys are pressed (e.g. Ctrl+C to copy, Ctrl+F to find, Ctrl+N new window)
       const hasModifiers = e.ctrlKey || e.metaKey || e.altKey;
 
-      // Toggle Circle Select
-      if (e.code === 'KeyC' && !hasModifiers) {
-        const activeTag = document.activeElement?.tagName.toUpperCase();
-        const isEditable = document.activeElement?.getAttribute('contenteditable') === 'true';
-        if (activeTag !== 'INPUT' && activeTag !== 'TEXTAREA' && !isEditable) {
-          const uiStore = useUIStore.getState();
-          if (uiStore.isSettingsOpen || uiStore.isLibraryOpen || uiStore.isPolyforkOpen) {
-            return;
-          }
-          if (uiStore.cameraMode === 'walk') {
-            uiStore.setCameraMode('orbit');
-          }
-          setIsCircleSelectActive((prev) => !prev);
+      const isInputTarget = (target: EventTarget | null): boolean => {
+        if (!target || !(target instanceof HTMLElement)) return false;
+        const tag = target.tagName.toUpperCase();
+        return (
+          tag === 'INPUT' ||
+          tag === 'TEXTAREA' ||
+          tag === 'SELECT' ||
+          target.isContentEditable
+        );
+      };
+
+      const isTyping = isInputTarget(e.target) || isInputTarget(document.activeElement);
+      const uiStore = useUIStore.getState();
+      const isAnyModalOpen =
+        uiStore.isSettingsOpen ||
+        uiStore.isLibraryOpen ||
+        uiStore.isPolyforkOpen ||
+        uiStore.isDocUploaderOpen ||
+        uiStore.isImageUploaderOpen;
+
+      if (e.code === 'Escape' || e.key === 'Escape') {
+        if (isTyping && e.target instanceof HTMLElement) {
+          e.target.blur();
           return;
         }
+        if (dialogueOpen) {
+          setDialogueOpen(false);
+          setActiveNPC(null);
+        } else if (uiStore.cameraMode === 'walk') {
+          setCameraMode('orbit');
+        } else if (isCircleSelectActiveRef.current) {
+          setIsCircleSelectActive(false);
+          useOrchestratorStore.getState().clearSelection();
+        } else if (useOrchestratorStore.getState().activeSelection) {
+          useOrchestratorStore.getState().clearSelection();
+        } else if (selectedNode) {
+          handleDeselect();
+        }
+        return;
+      }
+
+      // If user is typing in any text input or if a modal is open, completely suppress viewport hotkeys
+      if (isTyping || isAnyModalOpen) {
+        return;
+      }
+
+      // Toggle Circle Select
+      if (e.code === 'KeyC' && !hasModifiers) {
+        if (uiStore.cameraMode === 'walk') {
+          uiStore.setCameraMode('orbit');
+        }
+        setIsCircleSelectActive((prev) => {
+          const next = !prev;
+          if (!next) {
+            useOrchestratorStore.getState().clearSelection();
+          }
+          return next;
+        });
+        return;
       }
 
       switch (e.code) {
@@ -2403,29 +2449,29 @@ export const ThreeViewport = () => {
         }
         case 'KeyN': {
           if (hasModifiers) break;
-          if (!dialogueOpen && !(e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement)) {
+          if (!dialogueOpen) {
             toggleDayNight();
           }
           break;
         }
-        case 'Escape':
-          if (dialogueOpen) {
-            setDialogueOpen(false);
-            setActiveNPC(null);
-          } else if (useUIStore.getState().cameraMode === 'walk') {
-            setCameraMode('orbit');
-          } else if (isCircleSelectActiveRef.current) {
-            setIsCircleSelectActive(false);
-          } else if (useOrchestratorStore.getState().activeSelection) {
-            useOrchestratorStore.getState().clearSelection();
-          } else if (selectedNode) {
-            handleDeselect();
-          }
-          break;
       }
     };
 
     const onKeyUp = (e: KeyboardEvent) => {
+      const isInputTarget = (target: EventTarget | null): boolean => {
+        if (!target || !(target instanceof HTMLElement)) return false;
+        const tag = target.tagName.toUpperCase();
+        return (
+          tag === 'INPUT' ||
+          tag === 'TEXTAREA' ||
+          tag === 'SELECT' ||
+          target.isContentEditable
+        );
+      };
+      if (isInputTarget(e.target) || isInputTarget(document.activeElement)) {
+        return;
+      }
+
       switch (e.code) {
         case 'KeyW':
         case 'ArrowUp':
@@ -2446,18 +2492,28 @@ export const ThreeViewport = () => {
       }
     };
 
+    const onWindowBlur = () => {
+      moveKeysRef.current = { forward: false, backward: false, left: false, right: false };
+    };
+
     window.addEventListener('keydown', onKeyDown);
     window.addEventListener('keyup', onKeyUp);
+    window.addEventListener('blur', onWindowBlur);
     return () => {
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('keyup', onKeyUp);
+      window.removeEventListener('blur', onWindowBlur);
     };
   }, [setCameraMode, setActiveNPC, selectedNode, dialogueOpen, cameraMode]);
 
   const handleResetCamera = () => {
+    if (useUIStore.getState().cameraMode === 'walk') {
+      useUIStore.getState().setCameraMode('orbit');
+    }
     if (cameraRef.current && controlsRef.current) {
       cameraRef.current.position.set(28, 22, 34);
       controlsRef.current.target.set(0, 4, 0);
+      controlsRef.current.update();
     }
   };
 

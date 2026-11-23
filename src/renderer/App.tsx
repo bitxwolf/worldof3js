@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { StudioHeader } from './components/Header/StudioHeader';
 import { LeftSidebar } from './components/Sidebar/LeftSidebar';
 import { ThreeViewport } from './components/Viewport/ThreeViewport';
@@ -16,9 +16,17 @@ import type { UploadedImage } from './components/Editor/ImageUploader';
 import { InventoryBar } from './components/HUD/InventoryBar';
 
 const App = () => {
-  const [showDocUploader, setShowDocUploader] = useState(false);
-  const [showImgUploader, setShowImgUploader] = useState(false);
-  const { leftSidebarOpen, rightInspectorOpen, cameraMode } = useUIStore();
+  const {
+    leftSidebarOpen,
+    rightInspectorOpen,
+    cameraMode,
+    isDocUploaderOpen,
+    isImageUploaderOpen,
+    setIsDocUploaderOpen,
+    setIsImageUploaderOpen,
+    toggleDocUploader,
+    toggleImageUploader,
+  } = useUIStore();
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -67,8 +75,12 @@ const App = () => {
               <div className="flex gap-1.5 pointer-events-auto">
                 <button
                   type="button"
-                  onClick={() => setShowDocUploader((v) => !v)}
-                  className="px-2.5 py-1.5 rounded-lg bg-gray-800/90 hover:bg-gray-700 text-white text-xs border border-white/10 backdrop-blur-sm shadow-md transition flex items-center space-x-1 cursor-pointer"
+                  onClick={toggleDocUploader}
+                  className={`px-2.5 py-1.5 rounded-lg text-xs border backdrop-blur-sm shadow-md transition flex items-center space-x-1 cursor-pointer ${
+                    isDocUploaderOpen
+                      ? 'bg-blue-600 border-blue-400 text-white'
+                      : 'bg-gray-800/90 hover:bg-gray-700 text-white border-white/10'
+                  }`}
                   title="Attach Story Document (.txt, .md, .pdf)"
                 >
                   <span>📎</span>
@@ -76,8 +88,12 @@ const App = () => {
                 </button>
                 <button
                   type="button"
-                  onClick={() => setShowImgUploader((v) => !v)}
-                  className="px-2.5 py-1.5 rounded-lg bg-gray-800/90 hover:bg-gray-700 text-white text-xs border border-white/10 backdrop-blur-sm shadow-md transition flex items-center space-x-1 cursor-pointer"
+                  onClick={toggleImageUploader}
+                  className={`px-2.5 py-1.5 rounded-lg text-xs border backdrop-blur-sm shadow-md transition flex items-center space-x-1 cursor-pointer ${
+                    isImageUploaderOpen
+                      ? 'bg-blue-600 border-blue-400 text-white'
+                      : 'bg-gray-800/90 hover:bg-gray-700 text-white border-white/10'
+                  }`}
                   title="Attach Reference Image"
                 >
                   <span>🖼️</span>
@@ -87,14 +103,14 @@ const App = () => {
             </div>
 
             {/* Document Uploader Dropzone */}
-            {showDocUploader && (
+            {isDocUploaderOpen && (
               <div className={`absolute bottom-16 ${leftSidebarOpen ? 'left-74' : 'left-4'} z-50 p-2 bg-gray-950/95 border border-gray-800 rounded-xl shadow-2xl min-w-[280px] transition-all duration-200`}>
                 <DocumentUploader
-                  onClose={() => setShowDocUploader(false)}
+                  onClose={() => setIsDocUploaderOpen(false)}
                   onDocumentLoaded={(text, filename) => {
                     useWorldStore.getState().setUploadedDocument(text);
                     useWorldStore.getState().setFlag('hasDocument', true);
-                    setShowDocUploader(false);
+                    setIsDocUploaderOpen(false);
                     console.info(`[DocUploader] Loaded: ${filename}`);
                   }}
                 />
@@ -102,11 +118,11 @@ const App = () => {
             )}
 
             {/* Image Uploader Dropzone */}
-            {showImgUploader && (
+            {isImageUploaderOpen && (
               <div className={`absolute bottom-16 ${leftSidebarOpen ? 'left-74' : 'left-4'} z-50 p-3 bg-gray-950/95 border border-gray-800 rounded-xl shadow-2xl min-w-[300px] transition-all duration-200`}>
                 <ImageUploader
-                  onDone={() => setShowImgUploader(false)}
-                  onClose={() => setShowImgUploader(false)}
+                  onDone={() => setIsImageUploaderOpen(false)}
+                  onClose={() => setIsImageUploaderOpen(false)}
                   onImagesChange={(images: UploadedImage[]) => {
                     useWorldStore.getState().setUploadedImages(
                       images.map((img) => ({ base64: img.base64, mimeType: img.mimeType, tag: img.tag || 'character' }))

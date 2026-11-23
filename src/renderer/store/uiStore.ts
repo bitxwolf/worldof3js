@@ -81,6 +81,8 @@ interface UIState {
   isSettingsOpen: boolean;
   isLibraryOpen: boolean;
   isPolyforkOpen: boolean;
+  isDocUploaderOpen: boolean;
+  isImageUploaderOpen: boolean;
   isGenerating: boolean;
   isUpdatingWorld: boolean;
   generationStep: string | null;
@@ -147,6 +149,10 @@ interface UIState {
   openPolyfork: () => void;
   closePolyfork: () => void;
   togglePolyfork: () => void;
+  setIsDocUploaderOpen: (open: boolean) => void;
+  setIsImageUploaderOpen: (open: boolean) => void;
+  toggleDocUploader: () => void;
+  toggleImageUploader: () => void;
   setGenerating: (isGenerating: boolean, step?: string | null) => void;
   setIsUpdatingWorld: (isUpdating: boolean) => void;
   setGenerationError: (error: string | null) => void;
@@ -204,6 +210,8 @@ export const useUIStore = create<UIState>((set) => ({
   isSettingsOpen: false,
   isLibraryOpen: false,
   isPolyforkOpen: false,
+  isDocUploaderOpen: false,
+  isImageUploaderOpen: false,
   isGenerating: false,
   isUpdatingWorld: false,
   generationStep: null,
@@ -293,6 +301,10 @@ export const useUIStore = create<UIState>((set) => ({
   openPolyfork: () => set({ isPolyforkOpen: true }),
   closePolyfork: () => set({ isPolyforkOpen: false }),
   togglePolyfork: () => set((s) => ({ isPolyforkOpen: !s.isPolyforkOpen })),
+  setIsDocUploaderOpen: (isDocUploaderOpen) => set({ isDocUploaderOpen }),
+  setIsImageUploaderOpen: (isImageUploaderOpen) => set({ isImageUploaderOpen }),
+  toggleDocUploader: () => set((s) => ({ isDocUploaderOpen: !s.isDocUploaderOpen })),
+  toggleImageUploader: () => set((s) => ({ isImageUploaderOpen: !s.isImageUploaderOpen })),
   setGenerating: (isGenerating, step = null) =>
     set({ isGenerating, generationStep: step, generationError: null }),
   setIsUpdatingWorld: (isUpdatingWorld) => set({ isUpdatingWorld }),
@@ -625,43 +637,66 @@ export const useUIStore = create<UIState>((set) => ({
   updateSelectedNodePosition: (axis, value) =>
     set((state) => {
       if (!state.selectedNode) return state;
+      const safeVal = Number.isFinite(value) ? value : 0;
       const pos: [number, number, number] = [...state.selectedNode.position];
-      if (axis === 'x') pos[0] = value;
-      else if (axis === 'y') pos[1] = value;
-      else if (axis === 'z') pos[2] = value;
+      if (axis === 'x') pos[0] = safeVal;
+      else if (axis === 'y') pos[1] = safeVal;
+      else if (axis === 'z') pos[2] = safeVal;
+      const updatedNode = {
+        ...state.selectedNode,
+        position: pos,
+      };
+      const updatedHierarchy = state.sceneHierarchy.map((item) =>
+        item.id === state.selectedNode?.id ? { ...item, position: pos } : item
+      );
       return {
-        selectedNode: {
-          ...state.selectedNode,
-          position: pos,
-        },
+        selectedNode: updatedNode,
+        sceneHierarchy: updatedHierarchy,
       };
     }),
   updateSelectedNodeScale: (axis, value) =>
     set((state) => {
       if (!state.selectedNode) return state;
+      const safeVal =
+        Number.isFinite(value) && value > 0.001
+          ? Math.min(value, 100)
+          : value <= 0.001
+          ? 0.001
+          : 1.0;
       const scale: [number, number, number] = [...state.selectedNode.scale];
-      if (axis === 'x') scale[0] = value;
-      else if (axis === 'y') scale[1] = value;
-      else if (axis === 'z') scale[2] = value;
+      if (axis === 'x') scale[0] = safeVal;
+      else if (axis === 'y') scale[1] = safeVal;
+      else if (axis === 'z') scale[2] = safeVal;
+      const updatedNode = {
+        ...state.selectedNode,
+        scale,
+      };
+      const updatedHierarchy = state.sceneHierarchy.map((item) =>
+        item.id === state.selectedNode?.id ? { ...item, scale } : item
+      );
       return {
-        selectedNode: {
-          ...state.selectedNode,
-          scale,
-        },
+        selectedNode: updatedNode,
+        sceneHierarchy: updatedHierarchy,
       };
     }),
   updateSelectedNodeRotation: (axis, value) =>
     set((state) => {
       if (!state.selectedNode) return state;
+      const safeVal = Number.isFinite(value) ? value : 0;
       const rot: [number, number, number] = [...(state.selectedNode.rotation || [0, 0, 0])];
-      if (axis === 'x') rot[0] = value;
-      else if (axis === 'y') rot[1] = value;
-      else if (axis === 'z') rot[2] = value;
+      if (axis === 'x') rot[0] = safeVal;
+      else if (axis === 'y') rot[1] = safeVal;
+      else if (axis === 'z') rot[2] = safeVal;
+      const updatedNode = {
+        ...state.selectedNode,
+        rotation: rot,
+      };
+      const updatedHierarchy = state.sceneHierarchy.map((item) =>
+        item.id === state.selectedNode?.id ? { ...item, rotation: rot } : item
+      );
       return {
-        selectedNode: {
-          ...state.selectedNode,
-          rotation: rot,
-        },
+        selectedNode: updatedNode,
+        sceneHierarchy: updatedHierarchy,
       };
     }),
 

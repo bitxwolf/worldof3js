@@ -21,6 +21,16 @@ This persistent document tracks all identified, audited, and resolved bugs acros
 | **BUG-011** | Medium | Security / API | IPv6 Loopback `[::1]` Origin & DNS Guard Bypass | **Resolved** | `tests/round2AuditFixes.test.ts` |
 | **BUG-012** | Medium | UI / UX / 3D | Standalone HTML Export FPS Camera Gimbal Lock | **Resolved** | `tests/round2AuditFixes.test.ts` |
 | **BUG-013** | Medium | UI / UX | Circle Select Button Click Deactivation Context Sync | **Resolved** | `tests/round2AuditFixes.test.ts` |
+| **BUG-014** | High | UI / UX / Hotkeys | Viewport Hotkeys Hijacking Editable Text Fields & Modals | **Resolved** | `tests/round3AuditFixes.test.ts` |
+| **BUG-015** | High | UI / UX | Orphaned Selection Context on Circle Select KeyC, Escape & Walk | **Resolved** | `tests/round3AuditFixes.test.ts` |
+| **BUG-016** | Medium | UI / UX | Image Uploader Trapped Modal & Missing Escape Handling | **Resolved** | `tests/round3AuditFixes.test.ts` |
+| **BUG-017** | High | Robustness / Three.js | Transform Matrix Zero/Negative Scale Determinant 0 Crash | **Resolved** | `tests/round3AuditFixes.test.ts` |
+| **BUG-018** | Medium | UI / UX | Scene Hierarchy Transform Desynchronization | **Resolved** | `tests/round3AuditFixes.test.ts` |
+| **BUG-019** | Medium | UI / UX | Reset View Camera Trapped in Walk Mode | **Resolved** | `tests/round3AuditFixes.test.ts` |
+| **BUG-020** | Low | UX / Controls | Circle Select Mouse Wheel Brush Direction Inversion | **Resolved** | `tests/round3AuditFixes.test.ts` |
+| **BUG-021** | Low | UI / UX | Spotlight Prompt Bar & JSON Inspector Escape Key Handling | **Resolved** | `tests/round3AuditFixes.test.ts` |
+| **BUG-022** | Low | UI / UX | Inventory Hotbar Modifier Key Collision & Contenteditable | **Resolved** | `tests/round3AuditFixes.test.ts` |
+| **BUG-023** | Low | UX / 3D | Standalone HTML Export Arrow Key Locomotion | **Resolved** | `tests/round3AuditFixes.test.ts` |
 
 ---
 
@@ -217,3 +227,137 @@ This persistent document tracks all identified, audited, and resolved bugs acros
 - **Root Cause:** Button click handler only toggled boolean state `setIsCircleSelectActive((prev) => !prev)` without notifying `orchestratorStore`.
 - **Fix Applied:** Added `if (!next) useOrchestratorStore.getState().clearSelection();` when deactivating Circle Select via the toolbar button.
 - **Test Verification:** Verified in `tests/round2AuditFixes.test.ts`.
+
+---
+
+### BUG-014: Viewport Hotkeys Hijacking Editable Text Fields & Modals
+- **ID:** `BUG-014`
+- **Severity:** High
+- **Category:** UI / UX / Hotkeys
+- **Files Modified:**
+  - `src/renderer/components/Viewport/ThreeViewport.tsx`
+- **Description:** Typing in text inputs, textareas, selects, or contenteditable areas (such as Right Inspector inputs, dialogue box, spotlight search) fired 3D viewport shortcuts whenever the user typed letters 'F', 'G', 'E', 'W', 'A', 'S', 'D', 'N', or 'C'. Typing 'f' flew the camera away, 'g' stole focus to the spotlight bar, 'e' triggered interaction/door opening, and 'w'/'a'/'s'/'d' caused character walking. Furthermore, pressing viewport hotkeys while modals were open bypassed modal focus traps.
+- **Root Cause:** `onKeyDown` and `onKeyUp` in `ThreeViewport.tsx` lacked comprehensive `isInputTarget` guarding (`INPUT`, `TEXTAREA`, `SELECT`, `isContentEditable`) and modal open state checks.
+- **Fix Applied:** Added `isInputTarget` detection across `e.target` and `document.activeElement`, verified modal open states (`isSettingsOpen`, `isLibraryOpen`, `isPolyforkOpen`, `isDocUploaderOpen`, `isImageUploaderOpen`), and added window blur reset for motion keys.
+- **Test Verification:** Verified by `tests/round3AuditFixes.test.ts` (`isInputTarget helper detects input, textarea, select, and contenteditable elements`).
+
+---
+
+### BUG-015: Orphaned Selection Context on Circle Select KeyC, Escape & Walk Mode
+- **ID:** `BUG-015`
+- **Severity:** High
+- **Category:** UI / UX
+- **Files Modified:**
+  - `src/renderer/components/Viewport/ThreeViewport.tsx`
+- **Description:** Deactivating Circle Select via the keyboard shortcut `KeyC`, the `Escape` key, or transitioning into `walk` mode toggled the visual reticle off but left the `activeSelection` context active in `useOrchestratorStore`, leaving the "Editing Selection (R=...m)" banner permanently trapped in the spotlight prompt bar.
+- **Root Cause:** `ThreeViewport.tsx` only called `setIsCircleSelectActive(false)` on keyboard and camera mode triggers without calling `useOrchestratorStore.getState().clearSelection()`.
+- **Fix Applied:** Added `useOrchestratorStore.getState().clearSelection()` to the `KeyC` toggle handler, the `Escape` handler, and the `cameraMode === 'walk'` synchronization effect.
+- **Test Verification:** Verified by `tests/round3AuditFixes.test.ts`.
+
+---
+
+### BUG-016: Image Uploader Trapped Modal & Missing Escape Handling
+- **ID:** `BUG-016`
+- **Severity:** Medium
+- **Category:** UI / UX
+- **Files Modified:**
+  - `src/renderer/components/Editor/ImageUploader.tsx`
+  - `src/renderer/App.tsx`
+  - `src/renderer/store/uiStore.ts`
+- **Description:** Opening the Image Uploader modal created an unclosable state when the user decided not to upload anything. Pressing Escape did nothing, there was no close button (`✕`) in the header, and modal state was held in isolated React state rather than the centralized `uiStore`.
+- **Root Cause:** `ImageUploader.tsx` had no `keydown` listener for Escape, no header close button, and `uiStore` lacked modal tracking for uploaders.
+- **Fix Applied:** Added an Escape key listener and close (`✕`) button to `ImageUploader.tsx`. Added `isDocUploaderOpen` and `isImageUploaderOpen` state and mutators to `uiStore.ts` and connected them in `App.tsx`.
+- **Test Verification:** Verified by `tests/round3AuditFixes.test.ts`.
+
+---
+
+### BUG-017: Transform Matrix Zero/Negative Scale Determinant 0 Crash & NaN Position Clamping
+- **ID:** `BUG-017`
+- **Severity:** High
+- **Category:** Robustness / Three.js
+- **Files Modified:**
+  - `src/renderer/store/uiStore.ts`
+- **Description:** Passing zero or negative values into `updateSelectedNodeScale` produced non-invertible matrices, causing Three.js to throw continuous `Matrix4.invert(): can't invert matrix, determinant is 0` errors during scene rendering and raycasting. Passing `NaN` or `Infinity` into scale or position made meshes disappear entirely.
+- **Root Cause:** Missing bounds sanitization in `updateSelectedNodePosition` and `updateSelectedNodeScale`.
+- **Fix Applied:** Clamped scale to `[0.001, 100]` with finite validation, and normalized non-finite positions and rotations to `0`.
+- **Test Verification:** Verified by `tests/round3AuditFixes.test.ts`.
+
+---
+
+### BUG-018: Scene Hierarchy Stale Transform Desynchronization
+- **ID:** `BUG-018`
+- **Severity:** Medium
+- **Category:** UI / UX
+- **Files Modified:**
+  - `src/renderer/store/uiStore.ts`
+  - `src/renderer/components/Viewport/ThreeViewport.tsx`
+- **Description:** Modifying an object's Position, Scale, or Rotation in `RightInspector` updated `selectedNode` but never updated `sceneHierarchy`. When users navigated back to the Scene Hierarchy in the Left Sidebar and re-clicked the object, the Inspector reverted back to the old stale coordinates.
+- **Root Cause:** `uiStore.ts` transform methods mutated `state.selectedNode` without updating the matching item in `state.sceneHierarchy`.
+- **Fix Applied:** Updated `updateSelectedNodePosition`, `updateSelectedNodeScale`, and `updateSelectedNodeRotation` to map over and update `sceneHierarchy` synchronously, and called `selectedObj.updateMatrixWorld(true)` in `ThreeViewport.tsx`.
+- **Test Verification:** Verified by `tests/round3AuditFixes.test.ts`.
+
+---
+
+### BUG-019: Reset View Camera Trapped in Walk Mode
+- **ID:** `BUG-019`
+- **Severity:** Medium
+- **Category:** UI / UX
+- **Files Modified:**
+  - `src/renderer/components/Viewport/ThreeViewport.tsx`
+- **Description:** Clicking "Reset View" while in FPS Walk mode repositioned the camera to `(28, 22, 34)` in the sky, but left `cameraMode` as `'walk'`, causing the player controller to remain active in first-person mode floating in the sky.
+- **Root Cause:** `handleResetCamera` only updated camera and OrbitControls coordinates without transitioning `cameraMode` back to `'orbit'`.
+- **Fix Applied:** Added `if (useUIStore.getState().cameraMode === 'walk') useUIStore.getState().setCameraMode('orbit');` to `handleResetCamera`.
+- **Test Verification:** Verified by `tests/round3AuditFixes.test.ts`.
+
+---
+
+### BUG-020: Circle Select Mouse Wheel Brush Direction Inversion
+- **ID:** `BUG-020`
+- **Severity:** Low
+- **Category:** UX / Controls
+- **Files Modified:**
+  - `src/renderer/components/Viewport/CircleSelectTool.ts`
+- **Description:** Scrolling the mouse wheel up over the canvas while Circle Select was active decreased the brush radius, while scrolling down increased it. This contradicted industry standards (Blender, Photoshop) and the tool's own Shift+drag behavior.
+- **Root Cause:** `onWheel` added `event.deltaY * 0.05`. Because wheel up produces negative `deltaY`, it subtracted from the radius.
+- **Fix Applied:** Adjusted calculation to `this.radius - Math.sign(event.deltaY) * 2.5` so wheel up increases radius and wheel down decreases radius.
+- **Test Verification:** Verified by `tests/round3AuditFixes.test.ts`.
+
+---
+
+### BUG-021: Spotlight Prompt Bar & JSON Inspector Escape Key Handling
+- **ID:** `BUG-021`
+- **Severity:** Low
+- **Category:** UI / UX
+- **Files Modified:**
+  - `src/renderer/components/Viewport/SpotlightPromptBar.tsx`
+  - `src/renderer/components/Editor/JSONInspector.tsx`
+- **Description:** Pressing `Escape` while focused in `#spotlightInput` or while the JSON Inspector drawer was expanded did nothing.
+- **Root Cause:** Missing `Escape` key listeners in both components.
+- **Fix Applied:** Added Escape handling in `SpotlightPromptBar.tsx` (clears input text or active selection and blurs focus) and in `JSONInspector.tsx` (collapses drawer).
+- **Test Verification:** Verified by manual inspection and test suites.
+
+---
+
+### BUG-022: Inventory Hotbar Modifier Key Collision & Contenteditable Leaks
+- **ID:** `BUG-022`
+- **Severity:** Low
+- **Category:** UI / UX
+- **Files Modified:**
+  - `src/renderer/components/HUD/InventoryBar.tsx`
+- **Description:** Pressing number keys `1`–`8` while holding modifier keys (`Ctrl+1` or `Cmd+1` to switch browser tabs) switched inventory slots. In addition, typing numbers inside contenteditable divs triggered inventory slot switches.
+- **Root Cause:** `InventoryBar.tsx` checked only `instanceof HTMLInputElement || HTMLTextAreaElement` without checking `e.ctrlKey || e.metaKey || e.altKey` or `isContentEditable`.
+- **Fix Applied:** Added modifier key guards and `isContentEditable` checks before processing hotbar numeric keys.
+- **Test Verification:** Verified by `tests/round3AuditFixes.test.ts`.
+
+---
+
+### BUG-023: Standalone HTML Export Arrow Key Locomotion
+- **ID:** `BUG-023`
+- **Severity:** Low
+- **Category:** UX / 3D
+- **Files Modified:**
+  - `src/shared/exportHtml.ts`
+- **Description:** In exported standalone HTML worlds, pressing arrow keys (`ArrowUp`, `ArrowDown`, `ArrowLeft`, `ArrowRight`) did not move the player. Only `KeyW`, `KeyS`, `KeyA`, `KeyD` were supported.
+- **Root Cause:** `keys` mapping in `exportHtml.ts` omitted arrow keys.
+- **Fix Applied:** Added arrow key mapping and motion support in `exportHtml.ts`.
+- **Test Verification:** Verified by `tests/round3AuditFixes.test.ts`.

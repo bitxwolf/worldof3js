@@ -285,7 +285,7 @@ export function generateStandaloneHtml(graph: SceneGraph & { code?: string }): s
       isLocked = document.pointerLockElement === document.body;
     });
 
-    const keys = { KeyW: false, KeyS: false, KeyA: false, KeyD: false };
+    const keys = { KeyW: false, KeyS: false, KeyA: false, KeyD: false, ArrowUp: false, ArrowDown: false, ArrowLeft: false, ArrowRight: false };
     window.addEventListener('keydown', (e) => { if (keys[e.code] !== undefined) keys[e.code] = true; });
     window.addEventListener('keyup', (e) => { if (keys[e.code] !== undefined) keys[e.code] = false; });
 
@@ -326,10 +326,10 @@ export function generateStandaloneHtml(graph: SceneGraph & { code?: string }): s
 
       if (isLocked) {
         const move = new THREE.Vector3();
-        if (keys.KeyW) move.z -= 1;
-        if (keys.KeyS) move.z += 1;
-        if (keys.KeyA) move.x -= 1;
-        if (keys.KeyD) move.x += 1;
+        if (keys.KeyW || keys.ArrowUp) move.z -= 1;
+        if (keys.KeyS || keys.ArrowDown) move.z += 1;
+        if (keys.KeyA || keys.ArrowLeft) move.x -= 1;
+        if (keys.KeyD || keys.ArrowRight) move.x += 1;
         if (move.lengthSq() > 0) {
           move.normalize().multiplyScalar(5 * delta);
           move.applyEuler(new THREE.Euler(0, yaw, 0));

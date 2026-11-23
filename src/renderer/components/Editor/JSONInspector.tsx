@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useWorldStore } from '../../store/worldStore';
 import { useUIStore } from '../../store/uiStore';
 
@@ -6,6 +6,17 @@ export const JSONInspector = () => {
   const { sceneGraph } = useWorldStore();
   const { jsonInspectorOpen, toggleJsonInspector } = useUIStore();
   const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    if (!jsonInspectorOpen) return;
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        toggleJsonInspector();
+      }
+    };
+    window.addEventListener('keydown', handleKey);
+    return () => window.removeEventListener('keydown', handleKey);
+  }, [jsonInspectorOpen, toggleJsonInspector]);
 
   if (!sceneGraph) return null;
 
