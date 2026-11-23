@@ -65,7 +65,9 @@ export const UpdatePromptBar = ({
     }
   };
 
-  if (!sceneGraph) return null;
+  const cameraMode = useUIStore((s) => s.cameraMode);
+
+  if (!sceneGraph || cameraMode === 'walk') return null;
 
   return (
     <div className="fixed top-4 left-1/2 -translate-x-1/2 z-20 pointer-events-auto">

@@ -112,7 +112,15 @@ export const WorldLibraryModal = () => {
     } catch {
       // ignore JSON parse errors
     }
-  }, [isLibraryOpen]);
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        closeLibrary();
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [isLibraryOpen, closeLibrary]);
 
   if (!isLibraryOpen) return null;
 
@@ -273,6 +281,7 @@ export const WorldLibraryModal = () => {
       if (window.electronAPI?.loadWorld) {
         const res = await window.electronAPI.loadWorld();
         if (res.success && res.data?.sceneGraph) {
+          useWorldStore.getState().setCustomWorldActive(true);
           setSceneGraph(res.data.sceneGraph);
           setGeneratedCode(res.data.generatedCode ?? null);
           if (res.data.flags) {
@@ -304,6 +313,7 @@ export const WorldLibraryModal = () => {
               showNotification('Invalid world file schema.', 4000, 'warning');
               return;
             }
+            useWorldStore.getState().setCustomWorldActive(true);
             setSceneGraph(result.data.sceneGraph);
             setGeneratedCode(result.data.generatedCode ?? null);
             if (result.data.flags) {

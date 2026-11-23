@@ -43,6 +43,18 @@ export const SettingsModal = () => {
   // Load saved settings & models on open
   useEffect(() => {
     if (!isSettingsOpen) return;
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [isSettingsOpen, onClose]);
+
+  useEffect(() => {
+    if (!isSettingsOpen) return;
     (async () => {
       const res = await (window.electronAPI?.getSettings
         ? window.electronAPI.getSettings()

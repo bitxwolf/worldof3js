@@ -9,6 +9,7 @@ import { PolyforkExplorer } from './components/Polyfork/PolyforkExplorer';
 import { JSONInspector } from './components/Editor/JSONInspector';
 import { ViewportErrorBoundary, ModalErrorBoundary } from './components/ErrorBoundary';
 import { useWorldStore } from './store/worldStore';
+import { useUIStore } from './store/uiStore';
 import { DocumentUploader } from './components/Editor/DocumentUploader';
 import { ImageUploader } from './components/Editor/ImageUploader';
 import type { UploadedImage } from './components/Editor/ImageUploader';
@@ -17,6 +18,7 @@ import { InventoryBar } from './components/HUD/InventoryBar';
 const App = () => {
   const [showDocUploader, setShowDocUploader] = useState(false);
   const [showImgUploader, setShowImgUploader] = useState(false);
+  const { leftSidebarOpen, rightInspectorOpen, cameraMode } = useUIStore();
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -53,58 +55,66 @@ const App = () => {
           </div>
         </ViewportErrorBoundary>
 
-        {/* JSON Inspector overlay (other ingestion components to be integrated into SpotlightPromptBar in a future pass) */}
-        <div className="absolute bottom-0 left-72 right-80 z-30 p-2 pointer-events-auto">
-          <JSONInspector />
-        </div>
+        {/* JSON Inspector & Ingestion Controls (active in Orbit view) */}
+        {cameraMode !== 'walk' && (
+          <>
+            <div className={`absolute bottom-0 ${leftSidebarOpen ? 'left-72' : 'left-0'} ${rightInspectorOpen ? 'right-80' : 'right-0'} z-25 p-2 pointer-events-auto transition-all duration-200`}>
+              <JSONInspector />
+            </div>
 
-        {/* Upload Buttons in Prompt Area */}
-        <div className="absolute bottom-0 left-72 right-80 z-40 flex items-end gap-2 p-2 pointer-events-none">
-          <div className="flex gap-1 pointer-events-auto">
-            <button
-              onClick={() => setShowDocUploader((v) => !v)}
-              className="p-2 rounded-lg bg-gray-800/80 hover:bg-gray-700 text-white text-sm border border-white/10 backdrop-blur-sm"
-              title="Attach Document"
-            >
-              📎
-            </button>
-            <button
-              onClick={() => setShowImgUploader((v) => !v)}
-              className="p-2 rounded-lg bg-gray-800/80 hover:bg-gray-700 text-white text-sm border border-white/10 backdrop-blur-sm"
-              title="Attach Image"
-            >
-              🖼️
-            </button>
-          </div>
-        </div>
+            {/* Upload Buttons in Prompt Area */}
+            <div className={`absolute bottom-2 ${leftSidebarOpen ? 'left-74' : 'left-2'} z-40 flex items-end gap-2 p-2 pointer-events-none transition-all duration-200`}>
+              <div className="flex gap-1.5 pointer-events-auto">
+                <button
+                  type="button"
+                  onClick={() => setShowDocUploader((v) => !v)}
+                  className="px-2.5 py-1.5 rounded-lg bg-gray-800/90 hover:bg-gray-700 text-white text-xs border border-white/10 backdrop-blur-sm shadow-md transition flex items-center space-x-1 cursor-pointer"
+                  title="Attach Story Document (.txt, .md, .pdf)"
+                >
+                  <span>📎</span>
+                  <span className="text-[11px] font-medium hidden sm:inline">Story</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowImgUploader((v) => !v)}
+                  className="px-2.5 py-1.5 rounded-lg bg-gray-800/90 hover:bg-gray-700 text-white text-xs border border-white/10 backdrop-blur-sm shadow-md transition flex items-center space-x-1 cursor-pointer"
+                  title="Attach Reference Image"
+                >
+                  <span>🖼️</span>
+                  <span className="text-[11px] font-medium hidden sm:inline">Images</span>
+                </button>
+              </div>
+            </div>
 
-        {/* Document Uploader Dropzone */}
-        {showDocUploader && (
-          <div className="absolute bottom-16 left-72 z-50 p-2 bg-gray-950/95 border border-gray-800 rounded-xl shadow-2xl min-w-[280px]">
-            <DocumentUploader
-              onDocumentLoaded={(text, filename) => {
-                useWorldStore.getState().setUploadedDocument(text);
-                useWorldStore.getState().setFlag('hasDocument', true);
-                setShowDocUploader(false);
-                console.info(`[DocUploader] Loaded: ${filename}`);
-              }}
-            />
-          </div>
-        )}
+            {/* Document Uploader Dropzone */}
+            {showDocUploader && (
+              <div className={`absolute bottom-16 ${leftSidebarOpen ? 'left-74' : 'left-4'} z-50 p-2 bg-gray-950/95 border border-gray-800 rounded-xl shadow-2xl min-w-[280px] transition-all duration-200`}>
+                <DocumentUploader
+                  onDocumentLoaded={(text, filename) => {
+                    useWorldStore.getState().setUploadedDocument(text);
+                    useWorldStore.getState().setFlag('hasDocument', true);
+                    setShowDocUploader(false);
+                    console.info(`[DocUploader] Loaded: ${filename}`);
+                  }}
+                />
+              </div>
+            )}
 
-        {/* Image Uploader Dropzone */}
-        {showImgUploader && (
-          <div className="absolute bottom-16 left-72 z-50 p-3 bg-gray-950/95 border border-gray-800 rounded-xl shadow-2xl min-w-[300px]">
-            <ImageUploader
-              onDone={() => setShowImgUploader(false)}
-              onClose={() => setShowImgUploader(false)}
-              onImagesChange={(images: UploadedImage[]) => {
-                useWorldStore.getState().setUploadedImages(
-                  images.map((img) => ({ base64: img.base64, mimeType: img.mimeType, tag: img.tag || 'character' }))
-                );
-              }}
-            />
-          </div>
+            {/* Image Uploader Dropzone */}
+            {showImgUploader && (
+              <div className={`absolute bottom-16 ${leftSidebarOpen ? 'left-74' : 'left-4'} z-50 p-3 bg-gray-950/95 border border-gray-800 rounded-xl shadow-2xl min-w-[300px] transition-all duration-200`}>
+                <ImageUploader
+                  onDone={() => setShowImgUploader(false)}
+                  onClose={() => setShowImgUploader(false)}
+                  onImagesChange={(images: UploadedImage[]) => {
+                    useWorldStore.getState().setUploadedImages(
+                      images.map((img) => ({ base64: img.base64, mimeType: img.mimeType, tag: img.tag || 'character' }))
+                    );
+                  }}
+                />
+              </div>
+            )}
+          </>
         )}
 
         {/* Right Inspector: Transform, Shader/Material, NPC Stream, IPC Telemetry */}

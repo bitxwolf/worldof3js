@@ -120,24 +120,42 @@ export class ParentAgent {
   async editSelection(
     sessionId: string,
     selection: SelectionContext,
-    _updateRequest: string
+    updateRequest: string
   ): Promise<CompiledWorldResult> {
+    const targetSessionId = sessionId || 'default-session';
     const graph = new WorldGraph(this.graphStore);
-    await graph.hydrate(sessionId);
+    await graph.hydrate(targetSessionId);
+
+    const sel = selection || {
+      center: { x: 0, z: 0 },
+      radiusWorldUnits: 25,
+      regions: [],
+      npcs: [],
+      landmarks: [],
+      activeQuests: [],
+      biome: 'pine',
+    };
 
     const affected = new Set<AgentId>();
-    if (selection.regions.length > 0 || selection.landmarks.length > 0) affected.add('world');
-    if (selection.npcs.length > 0) { affected.add('npc'); affected.add('quest'); affected.add('dialogue'); }
-    if (selection.activeQuests.length > 0) { affected.add('quest'); affected.add('dialogue'); }
+    if (sel.regions?.length > 0 || sel.landmarks?.length > 0) affected.add('world');
+    if (sel.npcs?.length > 0) { affected.add('npc'); affected.add('quest'); affected.add('dialogue'); }
+    if (sel.activeQuests?.length > 0) { affected.add('quest'); affected.add('dialogue'); }
+
+    if (affected.size === 0) {
+      affected.add('world');
+      affected.add('npc');
+    }
 
     for (const step of PIPELINE) {
       if (!affected.has(step.id)) continue;
-      this.emit(sessionId, step.id, 'started', `Re-running ${step.id}…`, step.percent);
+      this.emit(targetSessionId, step.id, 'started', `Re-running ${step.id}…`, step.percent);
 
       const runner = await AGENT_RUNNERS[step.id]();
       const slice = step.sliceBuilder(graph);
+      (slice as Record<string, unknown>).selection = sel;
+      (slice as Record<string, unknown>).updateRequest = updateRequest;
       const result = await runner({
-        sessionId,
+        sessionId: targetSessionId,
         slice,
         storeService: this.storeService,
         graphStore: this.graphStore,
@@ -145,14 +163,17 @@ export class ParentAgent {
 
       await graph.upsertNodes(result.nodes);
       await graph.upsertEdges(result.edges);
-      this.emit(sessionId, step.id, 'completed', `${step.id} updated`, step.percent);
+      this.emit(targetSessionId, step.id, 'completed', `${step.id} updated`, step.percent);
     }
 
     if (affected.has('world')) await this.assignRegionCoords(graph);
-    if (affected.has('npc')) await this.scatterEntities(graph);
+    if (affected.has('npc')) await this.scatterEntities(graph, sel.center);
 
+    this.emit(targetSessionId, 'compile', 'started', 'Compiling scene graph…', 95);
     const { compileSceneGraph } = await import('./compileSceneGraph');
-    return compileSceneGraph(graph, sessionId);
+    const compiled = compileSceneGraph(graph, targetSessionId);
+    this.emit(targetSessionId, 'compile', 'completed', 'Done', 100);
+    return compiled;
   }
 
   // ── helpers ──
@@ -174,19 +195,38 @@ export class ParentAgent {
     }
   }
 
-  private async scatterEntities(graph: WorldGraph): Promise<void> {
+  private async scatterEntities(graph: WorldGraph, fallbackCenter?: { x: number; z: number }): Promise<void> {
     const regions = graph.getNodesByType('region').map((r) => ({ id: r.id, attrs: r.attrs as RegionAttrs }));
     const layouts = layoutRegions(regions, 42);
     const layoutMap = new Map(layouts.map((l) => [l.id, l]));
+    const defaultLayout = layouts[0];
 
     let seed = 1;
     for (const npc of graph.getNodesByType('npc')) {
-      const layout = layoutMap.get((npc.attrs as NPCAttrs).regionId);
-      if (layout) { const [p] = scatterInRegion(layout, 1, seed++); npc.x = p.x; npc.z = p.z; await graph.upsertNode(npc); }
+      const layout = layoutMap.get((npc.attrs as NPCAttrs).regionId) || defaultLayout;
+      if (layout) {
+        const [p] = scatterInRegion(layout, 1, seed++);
+        npc.x = p.x;
+        npc.z = p.z;
+        await graph.upsertNode(npc);
+      } else if (npc.x === undefined || npc.z === undefined) {
+        npc.x = fallbackCenter?.x ?? 0;
+        npc.z = fallbackCenter?.z ?? 0;
+        await graph.upsertNode(npc);
+      }
     }
     for (const lm of graph.getNodesByType('landmark')) {
-      const layout = layoutMap.get((lm.attrs as LandmarkAttrs).regionId);
-      if (layout) { const [p] = scatterInRegion(layout, 1, seed++); lm.x = p.x; lm.z = p.z; await graph.upsertNode(lm); }
+      const layout = layoutMap.get((lm.attrs as LandmarkAttrs).regionId) || defaultLayout;
+      if (layout) {
+        const [p] = scatterInRegion(layout, 1, seed++);
+        lm.x = p.x;
+        lm.z = p.z;
+        await graph.upsertNode(lm);
+      } else if (lm.x === undefined || lm.z === undefined) {
+        lm.x = fallbackCenter?.x ?? 0;
+        lm.z = fallbackCenter?.z ?? 0;
+        await graph.upsertNode(lm);
+      }
     }
   }
 }

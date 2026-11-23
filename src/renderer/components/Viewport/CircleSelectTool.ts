@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { useOrchestratorStore } from '../../store/orchestratorStore';
 import { useUIStore } from '../../store/uiStore';
+import { useWorldStore } from '../../store/worldStore';
 import type { ViewportBiomeType } from '../../../shared/agents/agentTypes';
 import type { SelectionContext } from '../../../shared/agents/agentTypes';
 import { transport } from '../../../shared/transport';
@@ -14,6 +15,7 @@ export class CircleSelectTool {
   private radius: number = 25;
   private raycaster = new THREE.Raycaster();
   private mouse = new THREE.Vector2();
+  private wheelDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
   private onPointerDownBound = this.onPointerDown.bind(this);
   private onPointerMoveBound = this.onPointerMove.bind(this);
@@ -21,20 +23,20 @@ export class CircleSelectTool {
   private onWheelBound = this.onWheel.bind(this);
 
   private activeBiome: ViewportBiomeType = 'pine';
-  private terrainMesh: THREE.Mesh | null = null;
+  private getTerrainMesh: () => THREE.Mesh | null;
   private isDragging: boolean = false;
 
   constructor(
     scene: THREE.Scene,
     camera: THREE.Camera,
     canvas: HTMLCanvasElement,
-    terrainMesh: THREE.Mesh | null,
+    terrainMeshOrGetter: THREE.Mesh | (() => THREE.Mesh | null) | null,
     activeBiome: ViewportBiomeType
   ) {
     this.scene = scene;
     this.camera = camera;
     this.canvas = canvas;
-    this.terrainMesh = terrainMesh;
+    this.getTerrainMesh = typeof terrainMeshOrGetter === 'function' ? terrainMeshOrGetter : () => terrainMeshOrGetter;
     this.activeBiome = activeBiome;
 
     // Create Reticle
@@ -42,7 +44,7 @@ export class CircleSelectTool {
     this.reticle.position.y = 0.05; // Prevent z-fighting
     this.reticle.rotation.x = -Math.PI / 2;
 
-    // Translucent filled circle
+    // Translucent filled circle (depthTest: false ensures reticle is never clipped under mountains)
     const fillGeo = new THREE.CircleGeometry(1, 64);
     const fillMat = new THREE.MeshBasicMaterial({
       color: 0x00e5ff,
@@ -50,8 +52,10 @@ export class CircleSelectTool {
       opacity: 0.35,
       side: THREE.DoubleSide,
       depthWrite: false,
+      depthTest: false,
     });
     const fillMesh = new THREE.Mesh(fillGeo, fillMat);
+    fillMesh.renderOrder = 999;
     this.reticle.add(fillMesh);
 
     // Outline ring
@@ -60,8 +64,10 @@ export class CircleSelectTool {
       color: 0x00e5ff,
       side: THREE.DoubleSide,
       depthWrite: false,
+      depthTest: false,
     });
     const outlineMesh = new THREE.Mesh(outlineGeo, outlineMat);
+    outlineMesh.renderOrder = 1000;
     this.reticle.add(outlineMesh);
 
     this.updateRadius(this.radius);
@@ -81,13 +87,15 @@ export class CircleSelectTool {
 
   private updatePosition(event: MouseEvent) {
     const rect = this.canvas.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return;
     this.mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
     this.mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
 
     this.raycaster.setFromCamera(this.mouse, this.camera);
 
-    if (this.terrainMesh) {
-      const intersects = this.raycaster.intersectObject(this.terrainMesh);
+    const terrainMesh = this.getTerrainMesh();
+    if (terrainMesh) {
+      const intersects = this.raycaster.intersectObject(terrainMesh);
       if (intersects.length > 0) {
         this.reticle.position.set(intersects[0].point.x, intersects[0].point.y + 0.05, intersects[0].point.z);
         return;
@@ -127,6 +135,14 @@ export class CircleSelectTool {
   private onWheel(event: WheelEvent) {
     event.preventDefault();
     this.updateRadius(this.radius + event.deltaY * 0.05);
+
+    // Debounce confirmSelection to prevent flooding IPC and notifications while scrolling
+    if (this.wheelDebounceTimer) {
+      clearTimeout(this.wheelDebounceTimer);
+    }
+    this.wheelDebounceTimer = setTimeout(() => {
+      this.confirmSelection();
+    }, 150);
   }
 
   private async confirmSelection() {
@@ -143,6 +159,11 @@ export class CircleSelectTool {
 
       const nodes = (result.success && result.data?.nodes) ? result.data.nodes : [];
 
+      const regionSet = new Set<string>();
+      const npcSet = new Set<string>();
+      const landmarkSet = new Set<string>();
+      const questSet = new Set<string>();
+
       const regions: string[] = [];
       const npcs: string[] = [];
       const landmarks: string[] = [];
@@ -151,15 +172,60 @@ export class CircleSelectTool {
       for (const node of nodes) {
         const t = (node.type || '').toLowerCase();
         if (t.includes('region')) {
-          regions.push(node.id);
+          if (!regionSet.has(node.id)) { regionSet.add(node.id); regions.push(node.id); }
         } else if (t.includes('npc') || t.includes('character')) {
-          npcs.push(node.id);
+          if (!npcSet.has(node.id)) { npcSet.add(node.id); npcs.push(node.id); }
         } else if (t.includes('landmark')) {
-          landmarks.push(node.id);
+          if (!landmarkSet.has(node.id)) { landmarkSet.add(node.id); landmarks.push(node.id); }
         } else if (t.includes('quest')) {
-          activeQuests.push(node.id);
+          if (!questSet.has(node.id)) { questSet.add(node.id); activeQuests.push(node.id); }
         }
       }
+
+      // Also inspect local sceneGraph for any entities within radius (e.g. loaded world, inserted Polyfork assets, or presets)
+      const currentScene = useWorldStore.getState().sceneGraph;
+      if (currentScene) {
+        if (currentScene.characters) {
+          for (const char of currentScene.characters) {
+            if (!char.position || char.position.length < 3) continue;
+            const dx = char.position[0] - cx;
+            const dz = char.position[2] - cz;
+            if (dx * dx + dz * dz <= r * r && !npcSet.has(char.id)) {
+              npcSet.add(char.id);
+              npcs.push(char.id);
+            }
+          }
+        }
+        if (currentScene.objects) {
+          for (const obj of currentScene.objects) {
+            if (!obj.position || obj.position.length < 3) continue;
+            const dx = obj.position[0] - cx;
+            const dz = obj.position[2] - cz;
+            if (dx * dx + dz * dz <= r * r && !landmarkSet.has(obj.id)) {
+              landmarkSet.add(obj.id);
+              landmarks.push(obj.id);
+            }
+          }
+        }
+        if (currentScene.zones) {
+          for (const zone of currentScene.zones) {
+            if (!zone.bounds?.center || zone.bounds.center.length < 3) continue;
+            const dx = zone.bounds.center[0] - cx;
+            const dz = zone.bounds.center[2] - cz;
+            const zoneRad = zone.bounds.radius || 10;
+            if (dx * dx + dz * dz <= Math.pow(r + zoneRad, 2) && !regionSet.has(zone.id)) {
+              regionSet.add(zone.id);
+              regions.push(zone.id);
+            }
+          }
+        }
+      }
+
+      if (!useOrchestratorStore.getState().currentSessionId) {
+        useOrchestratorStore.setState({ currentSessionId: sessionId });
+      }
+
+      const totalCount = regions.length + npcs.length + landmarks.length + activeQuests.length;
 
       const selectionContext: SelectionContext = {
         center: { x: cx, z: cz },
@@ -175,7 +241,7 @@ export class CircleSelectTool {
 
       const uiStore = useUIStore.getState();
       if (uiStore.showNotification) {
-        uiStore.showNotification(`Area selected: R=${r.toFixed(1)}m, ${nodes.length} entities`, 3000, 'info');
+        uiStore.showNotification(`Area selected: R=${r.toFixed(1)}m, ${totalCount} entities`, 3000, 'info');
       }
     } catch (err) {
       console.error('Circle selection error:', err);
@@ -183,6 +249,10 @@ export class CircleSelectTool {
   }
 
   public dispose() {
+    if (this.wheelDebounceTimer) {
+      clearTimeout(this.wheelDebounceTimer);
+      this.wheelDebounceTimer = null;
+    }
     this.canvas.removeEventListener('pointerdown', this.onPointerDownBound);
     this.canvas.removeEventListener('pointermove', this.onPointerMoveBound);
     this.canvas.removeEventListener('pointerup', this.onPointerUpBound);

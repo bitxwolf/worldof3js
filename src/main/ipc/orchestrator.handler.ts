@@ -42,12 +42,15 @@ export function registerOrchestratorHandlers(getWindow: () => BrowserWindow | nu
     async (_event, payload: OrchestratorEditPayload): Promise<IPCResult<CompiledWorldResult>> => {
       const win = getWindow();
       try {
+        if (!payload?.selection) {
+          return { success: false, error: { name: 'ValidationError', message: 'Selection context is required' } };
+        }
         const agent = new ParentAgent(StoreService, graphStore, kvStore, (evt) => {
           if (win && !win.isDestroyed()) {
             win.webContents.send(IPC_CHANNELS.ORCHESTRATOR_PROGRESS, evt);
           }
         });
-        const result = await agent.editSelection(payload.sessionId, payload.selection, payload.updateRequest);
+        const result = await agent.editSelection(payload.sessionId || 'default-session', payload.selection, payload.updateRequest || '');
         return { success: true, data: result };
       } catch (err) {
         const e = err instanceof Error ? err : new Error(String(err));
@@ -60,9 +63,10 @@ export function registerOrchestratorHandlers(getWindow: () => BrowserWindow | nu
     IPC_CHANNELS.GRAPH_QUERY_RADIUS,
     async (_event, payload: GraphQueryRadiusPayload): Promise<IPCResult<GraphQueryRadiusResult>> => {
       try {
+        const sessionId = payload?.sessionId || 'default-session';
         const graph = new WorldGraph(graphStore);
-        await graph.hydrate(payload.sessionId);
-        const nodes = graph.queryRadius(payload.x, payload.z, payload.radius);
+        await graph.hydrate(sessionId);
+        const nodes = graph.queryRadius(payload?.x ?? 0, payload?.z ?? 0, payload?.radius ?? 25);
         return { success: true, data: { nodes } };
       } catch (err) {
         const e = err instanceof Error ? err : new Error(String(err));

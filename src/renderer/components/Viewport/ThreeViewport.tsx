@@ -105,7 +105,26 @@ export const ThreeViewport = () => {
   const pointerLockRef = useRef<PointerLockControls | null>(null);
   const weatherSystemRef = useRef<WeatherSystem | null>(null);
   const [isCircleSelectActive, setIsCircleSelectActive] = useState(false);
+  const isCircleSelectActiveRef = useRef(false);
+  useEffect(() => {
+    isCircleSelectActiveRef.current = isCircleSelectActive;
+  }, [isCircleSelectActive]);
   const circleSelectToolRef = useRef<CircleSelectTool | null>(null);
+  const activeSelection = useOrchestratorStore((s) => s.activeSelection);
+  const prevSelectionRef = useRef(activeSelection);
+
+  useEffect(() => {
+    if (prevSelectionRef.current && !activeSelection && isCircleSelectActive) {
+      setIsCircleSelectActive(false);
+    }
+    prevSelectionRef.current = activeSelection;
+  }, [activeSelection, isCircleSelectActive]);
+
+  useEffect(() => {
+    if (cameraMode === 'walk' && isCircleSelectActive) {
+      setIsCircleSelectActive(false);
+    }
+  }, [cameraMode, isCircleSelectActive]);
   const animationMixersRef = useRef<THREE.AnimationMixer[]>([]);
 
   // Movement in walk mode
@@ -454,7 +473,7 @@ export const ThreeViewport = () => {
   };
 
   useEffect(() => {
-    if (!sceneRef.current || !cameraRef.current || !canvasRef.current || !terrainMeshRef.current) return;
+    if (!sceneRef.current || !cameraRef.current || !canvasRef.current) return;
 
     if (isCircleSelectActive) {
       if (controlsRef.current) controlsRef.current.enabled = false;
@@ -462,7 +481,7 @@ export const ThreeViewport = () => {
         sceneRef.current,
         cameraRef.current,
         canvasRef.current,
-        terrainMeshRef.current,
+        () => terrainMeshRef.current,
         activeBiome
       );
       circleSelectToolRef.current = tool;
@@ -480,6 +499,9 @@ export const ThreeViewport = () => {
       if (circleSelectToolRef.current) {
         circleSelectToolRef.current.dispose();
         circleSelectToolRef.current = null;
+      }
+      if (controlsRef.current && cameraMode !== 'walk') {
+        controlsRef.current.enabled = true;
       }
     };
   }, [isCircleSelectActive, activeBiome, cameraMode]);
@@ -966,6 +988,7 @@ export const ThreeViewport = () => {
 
     const onPointerDown = (e: MouseEvent) => {
       if (useUIStore.getState().cameraMode === 'walk') return;
+      if (isCircleSelectActiveRef.current) return;
       const rect = canvas.getBoundingClientRect();
       mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
       mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
@@ -2127,28 +2150,9 @@ export const ThreeViewport = () => {
       }
     };
 
-    const handleSmartEdit = (e: Event) => {
-      const customEvent = e as CustomEvent<{ instruction: string }>;
-      const instruction = customEvent.detail?.instruction?.toLowerCase() || '';
-      if (!sceneRef.current) return;
-
-      if (instruction.includes('dark') && instruction.includes('sky')) {
-        sceneRef.current.background = new THREE.Color(0x020308);
-        if (sceneRef.current.fog instanceof THREE.FogExp2) {
-          sceneRef.current.fog.color = new THREE.Color(0x020308);
-        }
-      } else if (instruction.includes('fog')) {
-        if (sceneRef.current.fog instanceof THREE.FogExp2) {
-          sceneRef.current.fog.density = 0.05;
-        }
-      }
-    };
-
     window.addEventListener('engine:material-update', handleMaterialUpdate);
-    window.addEventListener('engine:smart-edit', handleSmartEdit);
     return () => {
       window.removeEventListener('engine:material-update', handleMaterialUpdate);
-      window.removeEventListener('engine:smart-edit', handleSmartEdit);
     };
   }, []);
 
@@ -2170,7 +2174,9 @@ export const ThreeViewport = () => {
             link.href = URL.createObjectURL(blob);
             link.download = `world_${Date.now()}.gltf`;
             link.click();
-            URL.revokeObjectURL(link.href);
+            setTimeout(() => {
+              URL.revokeObjectURL(link.href);
+            }, 1000);
             useUIStore.getState().showNotification('World exported as GLTF!', 3000, 'success');
           },
           (err) => {
@@ -2190,10 +2196,21 @@ export const ThreeViewport = () => {
   // Key listeners for Walk Mode
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
+      // Ignore viewport hotkeys when modifier keys are pressed (e.g. Ctrl+C to copy, Ctrl+F to find, Ctrl+N new window)
+      const hasModifiers = e.ctrlKey || e.metaKey || e.altKey;
+
       // Toggle Circle Select
-      if (e.code === 'KeyC') {
+      if (e.code === 'KeyC' && !hasModifiers) {
         const activeTag = document.activeElement?.tagName.toUpperCase();
-        if (activeTag !== 'INPUT' && activeTag !== 'TEXTAREA') {
+        const isEditable = document.activeElement?.getAttribute('contenteditable') === 'true';
+        if (activeTag !== 'INPUT' && activeTag !== 'TEXTAREA' && !isEditable) {
+          const uiStore = useUIStore.getState();
+          if (uiStore.isSettingsOpen || uiStore.isLibraryOpen || uiStore.isPolyforkOpen) {
+            return;
+          }
+          if (uiStore.cameraMode === 'walk') {
+            uiStore.setCameraMode('orbit');
+          }
           setIsCircleSelectActive((prev) => !prev);
           return;
         }
@@ -2365,12 +2382,14 @@ export const ThreeViewport = () => {
           break;
         }
         case 'KeyG': {
+          if (hasModifiers) break;
           // Focus the spotlight prompt bar input
           const promptInput = document.querySelector<HTMLInputElement>('#spotlightInput');
           if (promptInput) { promptInput.focus(); e.preventDefault(); }
           break;
         }
         case 'KeyF': {
+          if (hasModifiers) break;
           // Fly to selected object
           if (selectedNode && cameraRef.current && controlsRef.current) {
             const pos = selectedNode.position;
@@ -2380,14 +2399,24 @@ export const ThreeViewport = () => {
           break;
         }
         case 'KeyN': {
+          if (hasModifiers) break;
           if (!dialogueOpen && !(e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement)) {
             toggleDayNight();
           }
           break;
         }
         case 'Escape':
-          if (useUIStore.getState().cameraMode === 'walk') {
+          if (dialogueOpen) {
+            setDialogueOpen(false);
+            setActiveNPC(null);
+          } else if (useUIStore.getState().cameraMode === 'walk') {
             setCameraMode('orbit');
+          } else if (isCircleSelectActiveRef.current) {
+            setIsCircleSelectActive(false);
+          } else if (useOrchestratorStore.getState().activeSelection) {
+            useOrchestratorStore.getState().clearSelection();
+          } else if (selectedNode) {
+            handleDeselect();
           }
           break;
       }
@@ -2420,7 +2449,7 @@ export const ThreeViewport = () => {
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('keyup', onKeyUp);
     };
-  }, [setCameraMode, setActiveNPC, selectedNode]);
+  }, [setCameraMode, setActiveNPC, selectedNode, dialogueOpen, cameraMode]);
 
   const handleResetCamera = () => {
     if (cameraRef.current && controlsRef.current) {
@@ -2602,7 +2631,12 @@ export const ThreeViewport = () => {
       <div className="absolute top-3 right-3 flex items-center space-x-1.5 z-10 select-none">
         <button
           type="button"
-          onClick={() => setIsCircleSelectActive(!isCircleSelectActive)}
+          onClick={() => {
+            if (useUIStore.getState().cameraMode === 'walk') {
+              useUIStore.getState().setCameraMode('orbit');
+            }
+            setIsCircleSelectActive((prev) => !prev);
+          }}
           title="Toggle Circle Select (C)"
           className={`px-2.5 py-1 rounded-md mac-subtle-blur border text-xs transition flex items-center space-x-1 cursor-pointer ${
             isCircleSelectActive ? 'bg-blue-600/60 border-blue-400 text-white shadow-sm' : 'bg-black/60 border-white/10 text-white hover:bg-white/20'
@@ -2680,7 +2714,7 @@ export const ThreeViewport = () => {
       <UpdatePromptBar />
 
       {/* Spotlight Prompt Bar */}
-      <SpotlightPromptBar />
+      {cameraMode !== 'walk' && <SpotlightPromptBar />}
       <DebugPanel />
 
       {/* Toast notifications */}

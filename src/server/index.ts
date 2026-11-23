@@ -10,6 +10,7 @@ import { APP_VERSION } from '../shared/constants';
 import { SqliteGraphStore, SqliteStorageAdapter } from '../main/storage/SqliteAdapters';
 import { ParentAgent } from '../main/agents/parentAgent';
 import { WorldGraph } from '../main/memory/WorldGraph';
+import { AppSettingsSchema } from '../shared/schema/sceneGraph.schema';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -68,8 +69,22 @@ const imageService = new ImageService();
 const graphStore = new SqliteGraphStore();
 const kvStore = new SqliteStorageAdapter();
 
+// Apply CSRF & Origin Guard to all internal /api routes
+app.use('/api', localOriginGuard);
+
+/** Recursively check for dangerous prototype pollution keys. */
+function hasPrototypePollution(obj: unknown): boolean {
+  if (!obj || typeof obj !== 'object') return false;
+  for (const key of Object.getOwnPropertyNames(obj)) {
+    if (key === '__proto__' || key === 'constructor' || key === 'prototype') return true;
+    const val = (obj as Record<string, unknown>)[key];
+    if (val && typeof val === 'object' && hasPrototypePollution(val)) return true;
+  }
+  return false;
+}
+
 // App
-app.get('/api/app/get-settings', localOriginGuard, (_req, res) => {
+app.get('/api/app/get-settings', (_req, res) => {
   try {
     const settings = StoreService.getSettings();
     // Mask API keys before sending over HTTP — never expose raw credentials
@@ -86,9 +101,18 @@ app.get('/api/app/get-settings', localOriginGuard, (_req, res) => {
   }
 });
 
-app.post('/api/app/save-settings', localOriginGuard, (req, res) => {
+app.post('/api/app/save-settings', (req, res) => {
   try {
-    StoreService.setSettings(req.body);
+    if (hasPrototypePollution(req.body)) {
+      res.status(400).json({ success: false, error: { name: 'ValidationError', message: 'Invalid settings format' } });
+      return;
+    }
+    const parseResult = AppSettingsSchema.partial().safeParse(req.body);
+    if (!parseResult.success) {
+      res.status(400).json({ success: false, error: { name: 'ValidationError', message: 'Invalid settings format' } });
+      return;
+    }
+    StoreService.setSettings(parseResult.data);
     res.json({ success: true });
   } catch (err) {
     const e = err instanceof Error ? err : new Error(String(err));
@@ -208,8 +232,12 @@ app.post('/api/orchestrator/generate', async (req, res) => {
 
 app.post('/api/orchestrator/edit-selection', async (req, res) => {
   try {
+    if (!req.body?.selection) {
+      res.status(400).json({ success: false, error: { name: 'ValidationError', message: 'Selection context is required' } });
+      return;
+    }
     const agent = new ParentAgent(StoreService, graphStore, kvStore, (_evt) => {});
-    const result = await agent.editSelection(req.body.sessionId, req.body.selection, req.body.updateRequest);
+    const result = await agent.editSelection(req.body.sessionId || 'default-session', req.body.selection, req.body.updateRequest || '');
     res.json({ success: true, data: result });
   } catch (err) {
     const e = err instanceof Error ? err : new Error(String(err));
@@ -219,9 +247,10 @@ app.post('/api/orchestrator/edit-selection', async (req, res) => {
 
 app.post('/api/graph/query-radius', async (req, res) => {
   try {
+    const sessionId = req.body?.sessionId || 'default-session';
     const graph = new WorldGraph(graphStore);
-    await graph.hydrate(req.body.sessionId);
-    const nodes = graph.queryRadius(req.body.x, req.body.z, req.body.radius);
+    await graph.hydrate(sessionId);
+    const nodes = graph.queryRadius(req.body.x ?? 0, req.body.z ?? 0, req.body.radius ?? 25);
     res.json({ success: true, data: { nodes } });
   } catch (err) {
     const e = err instanceof Error ? err : new Error(String(err));

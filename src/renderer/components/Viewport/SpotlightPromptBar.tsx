@@ -20,7 +20,7 @@ export const SpotlightPromptBar = () => {
     setGenerationMode,
   } = useUIStore();
 
-  const { setSceneGraph } = useWorldStore();
+  const { setSceneGraph, uploadedDocument, uploadedImages } = useWorldStore();
   
   const activeSelection = useOrchestratorStore((s) => s.activeSelection);
   const progress = useOrchestratorStore((s) => s.progress);
@@ -39,19 +39,34 @@ export const SpotlightPromptBar = () => {
       if (activeSelection) {
         result = await useOrchestratorStore.getState().editSelection(text);
       } else {
-        result = await useOrchestratorStore.getState().generateWorld(text, generationMode);
+        const mappedImageDescriptions = uploadedImages && uploadedImages.length > 0 ? uploadedImages.map((img, idx) => ({
+          tag: (img.tag as 'character' | 'scene' | 'texture' | 'map') || 'scene',
+          description: `Uploaded reference image ${idx + 1} (${img.tag || 'reference'})`,
+        })) : undefined;
+
+        result = await useOrchestratorStore.getState().generateWorld(
+          text,
+          generationMode,
+          {
+            document: uploadedDocument ?? undefined,
+            imageDescriptions: mappedImageDescriptions,
+          }
+        );
       }
 
       if (result) {
         useUIStore.getState().setActiveBiome(result.activeBiome);
         setSceneGraph(result.sceneGraph);
-        showNotification('World generated successfully!', 3500, 'success');
+        showNotification(activeSelection ? 'Selection updated successfully!' : 'World generated successfully!', 3500, 'success');
+        setPromptText('');
+        if (activeSelection) {
+          useOrchestratorStore.getState().clearSelection();
+        }
         return;
       }
 
       // Fallback: If orchestrator returned null/unavailable, generate world via unified api (parseWorld)
       if (api?.parseWorld) {
-        const { uploadedDocument, uploadedImages } = useWorldStore.getState();
         const parseRes = await api.parseWorld({
           text,
           document: uploadedDocument ?? undefined,
@@ -71,11 +86,13 @@ export const SpotlightPromptBar = () => {
             }
           }
           showNotification('World generated successfully!', 3500, 'success');
+          setPromptText('');
           return;
         }
       }
 
-      showNotification('Generation failed. Check API key in Settings.', 5000, 'error');
+      const storeErr = useOrchestratorStore.getState().error;
+      showNotification(storeErr || 'Generation failed. Check API key in Settings.', 5000, 'error');
       useWorldStore.getState().setCustomWorldActive(false);
     } catch (err: unknown) {
       console.warn('Generation failed:', err);
@@ -117,15 +134,39 @@ export const SpotlightPromptBar = () => {
       {/* Floating Spotlight Prompt Input Box */}
       <div className="p-1.5 rounded-2xl bg-mac-surface/90 mac-blur border border-white/15 shadow-2xl flex flex-col space-y-1.5">
         
-        {/* Selection Badge & Mode Selector */}
+        {/* Selection Badge, Context Badges & Mode Selector */}
         <div className="flex items-center justify-between px-2 pt-1">
-          <div className="flex items-center space-x-2">
+          <div className="flex items-center space-x-2 flex-wrap gap-y-1">
             {activeSelection && (
               <div className="flex items-center space-x-1 px-2 py-0.5 rounded-full bg-blue-500/20 border border-blue-500/30 text-[10px] text-blue-300">
                 <span>Editing Selection (R={activeSelection.radiusWorldUnits.toFixed(1)}m)</span>
                 <button
                   type="button"
                   onClick={() => useOrchestratorStore.getState().clearSelection()}
+                  className="hover:text-white transition-colors"
+                >
+                  <i className="ph ph-x" />
+                </button>
+              </div>
+            )}
+            {uploadedDocument && (
+              <div className="flex items-center space-x-1 px-2 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-500/30 text-[10px] text-emerald-300">
+                <span>Story Attached</span>
+                <button
+                  type="button"
+                  onClick={() => useWorldStore.getState().setUploadedDocument(null)}
+                  className="hover:text-white transition-colors"
+                >
+                  <i className="ph ph-x" />
+                </button>
+              </div>
+            )}
+            {uploadedImages && uploadedImages.length > 0 && (
+              <div className="flex items-center space-x-1 px-2 py-0.5 rounded-full bg-purple-500/20 border border-purple-500/30 text-[10px] text-purple-300">
+                <span>{uploadedImages.length} Image{uploadedImages.length > 1 ? 's' : ''} Attached</span>
+                <button
+                  type="button"
+                  onClick={() => useWorldStore.getState().setUploadedImages([])}
                   className="hover:text-white transition-colors"
                 >
                   <i className="ph ph-x" />
@@ -163,7 +204,11 @@ export const SpotlightPromptBar = () => {
             value={promptText}
             onChange={(e) => setPromptText(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Describe a world to generate... (e.g. 'Misty autumn valley with ancient stone monoliths')"
+            placeholder={
+              activeSelection
+                ? `Describe changes for selected area (R=${activeSelection.radiusWorldUnits.toFixed(0)}m)... (e.g. 'Add a stone altar and crystal trees')`
+                : "Describe a world to generate... (e.g. 'Misty autumn valley with ancient stone monoliths')"
+            }
             className="flex-1 bg-transparent border-none outline-none text-white placeholder:text-white/40 text-xs sm:text-sm py-1 font-normal"
           />
 

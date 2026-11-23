@@ -139,12 +139,15 @@ export function compileSceneGraph(graph: WorldGraph, sessionId: string): Compile
         ? 'polyfork:merchant'
         : 'polyfork:peasant';
 
+    const npcPosX = typeof npc.x === 'number' && !Number.isNaN(npc.x) ? npc.x : 0;
+    const npcPosZ = typeof npc.z === 'number' && !Number.isNaN(npc.z) ? npc.z : 0;
+
     characters.push({
       id: npc.id,
       name: attrs.name,
       description: attrs.dialogueSeed,
       personality: attrs.dialogueSeed,
-      position: [npc.x, 1.7, npc.z] as [number, number, number],
+      position: [npcPosX, 1.7, npcPosZ] as [number, number, number],
       behavior: ((attrs.type as string) === 'patrol' || attrs.type === 'guard') ? 'patrol' : 'wander',
       dialogueSeed,
       secrets: [],
@@ -156,12 +159,14 @@ export function compileSceneGraph(graph: WorldGraph, sessionId: string): Compile
 
   const objects: SceneGraph['objects'] = landmarkNodes.map(l => {
     const attrs = l.attrs as LandmarkAttrs;
+    const lmPosX = typeof l.x === 'number' && !Number.isNaN(l.x) ? l.x : 0;
+    const lmPosZ = typeof l.z === 'number' && !Number.isNaN(l.z) ? l.z : 0;
     return {
       id: l.id,
       name: attrs.name,
       type: 'landmark',
       description: attrs.significance,
-      position: [l.x, 0, l.z] as [number, number, number],
+      position: [lmPosX, 0, lmPosZ] as [number, number, number],
       collidable: true,
       interactable: true,
       interactId: l.id,

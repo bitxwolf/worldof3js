@@ -82,9 +82,13 @@ export const useOrchestratorStore = create<OrchestratorState>((set, get) => ({
   },
 
   editSelection: async (updatePrompt: string): Promise<CompiledWorldResult | null> => {
-    const { currentSessionId, activeSelection } = get();
-    if (!currentSessionId || !activeSelection) {
-      const errMsg = !currentSessionId ? 'No active session' : 'No active selection to edit';
+    let { currentSessionId, activeSelection } = get();
+    if (!currentSessionId) {
+      currentSessionId = 'default-session';
+      set({ currentSessionId });
+    }
+    if (!activeSelection) {
+      const errMsg = 'No active selection to edit';
       set({ status: 'error', error: errMsg });
       return null;
     }
@@ -109,6 +113,7 @@ export const useOrchestratorStore = create<OrchestratorState>((set, get) => ({
       set({
         status: 'idle',
         lastResult: result.data,
+        currentSessionId: result.data.sessionId || currentSessionId,
         error: null,
       });
       return result.data;

@@ -63,7 +63,15 @@ export const PolyforkExplorer: React.FC = () => {
         }
       }).catch(() => {});
     }
-  }, [isPolyforkOpen]);
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        closePolyfork();
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [isPolyforkOpen, closePolyfork]);
 
   // Search assets when filter or query changes
   useEffect(() => {
