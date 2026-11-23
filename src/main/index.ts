@@ -61,7 +61,7 @@ function createWindow(): void {
     return { action: 'deny' };
   });
 
-  const devServerUrl = process.env['VITE_DEV_SERVER_URL'];
+  const devServerUrl = process.env['ELECTRON_RENDERER_URL'] || process.env['VITE_DEV_SERVER_URL'];
 
   // Prevent navigation away from the local app (allow dev server URL and file://, block external navigation)
   mainWindow.webContents.on('will-navigate', (event, navigationUrl) => {
@@ -121,7 +121,7 @@ function setupNetworkGuard(): void {
     { urls: ['http://*/*', 'https://*/*'] },
     (details, callback) => {
       // Allow requests to known safe CDNs (Three.js) and dev server
-      const devUrl = process.env['VITE_DEV_SERVER_URL'];
+      const devUrl = process.env['ELECTRON_RENDERER_URL'] || process.env['VITE_DEV_SERVER_URL'];
       try {
         const parsed = new URL(details.url);
         const host = parsed.hostname.toLowerCase();

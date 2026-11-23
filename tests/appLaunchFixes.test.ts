@@ -53,4 +53,11 @@ describe('App Launch Fixes & Resilience Verification', () => {
     expect(content).not.toMatch(/app\.get\(['"]\*['"]/);
     expect(content).toContain("app.get('/{*splat}'");
   });
+
+  it('supports ELECTRON_RENDERER_URL from electron-vite dev server', () => {
+    const indexPath = path.resolve(__dirname, '../src/main/index.ts');
+    const content = fs.readFileSync(indexPath, 'utf-8');
+
+    expect(content).toContain("process.env['ELECTRON_RENDERER_URL']");
+  });
 });
