@@ -39,9 +39,10 @@ Thumbs.db
 *.sln
 
 # Graph output (large generated file)
-graph.json
-graph
+/graph.json
+/graph
 graphify-out/
+!src/shared/graph/
 
 # electron-store data (contains local API keys)
 app-data/
