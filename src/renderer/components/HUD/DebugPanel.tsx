@@ -5,19 +5,22 @@ import { useUIStore } from '../../store/uiStore';
 export const DebugPanel = () => {
   const [visible, setVisible] = useState(false);
   const { generatedCode, sceneGraph } = useWorldStore();
-  const { telemetry } = useUIStore();
+  const { telemetry, showNotification } = useUIStore();
   const [showCode, setShowCode] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
       if (e.shiftKey && e.code === 'KeyD') {
         e.preventDefault();
         setVisible(v => !v);
+      } else if (e.key === 'Escape' && visible) {
+        setVisible(false);
       }
     };
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
-  }, []);
+  }, [visible]);
 
   if (!visible) return null;
 
@@ -47,10 +50,24 @@ export const DebugPanel = () => {
           {showCode ? 'Hide Code' : 'View Generated Code'}
         </button>
         <button
-          onClick={() => { if (generatedCode) { navigator.clipboard.writeText(generatedCode); } }}
+          onClick={() => {
+            if (!generatedCode) return;
+            if (navigator?.clipboard?.writeText) {
+              navigator.clipboard
+                .writeText(generatedCode)
+                .then(() => {
+                  setCopied(true);
+                  showNotification('Generated code copied to clipboard!', 2500, 'success');
+                  setTimeout(() => setCopied(false), 1500);
+                })
+                .catch(() => {
+                  showNotification('Failed to copy to clipboard', 2500, 'warning');
+                });
+            }
+          }}
           className="px-2 py-1.5 rounded-lg bg-gray-800 hover:bg-gray-700 text-white text-[11px] font-medium transition-colors"
         >
-          Copy
+          {copied ? 'Copied!' : 'Copy'}
         </button>
       </div>
 

@@ -290,14 +290,13 @@ export function generateStandaloneHtml(graph: SceneGraph & { code?: string }): s
     window.addEventListener('keyup', (e) => { if (keys[e.code] !== undefined) keys[e.code] = false; });
 
     let yaw = 0, pitch = 0;
+    camera.rotation.order = 'YXZ';
     window.addEventListener('mousemove', (e) => {
       if (!isLocked) return;
       yaw -= e.movementX * 0.002;
       pitch -= e.movementY * 0.002;
       pitch = Math.max(-Math.PI / 2.2, Math.min(Math.PI / 2.2, pitch));
-      camera.rotation.set(0, 0, 0);
-      camera.rotation.y = yaw;
-      camera.rotation.x = pitch;
+      camera.rotation.set(pitch, yaw, 0);
     });
 
     const raycaster = new THREE.Raycaster();

@@ -96,12 +96,13 @@ function createWindow(): void {
  * This runs in the main process as the authoritative DNS rebinding defense.
  */
 function isPrivateIP(ip: string): boolean {
-  if (ip === '::1') return true;
-  const ipLower = ip.toLowerCase();
+  const cleanIp = ip.replace(/^\[|\]$/g, '');
+  if (cleanIp === '::1') return true;
+  const ipLower = cleanIp.toLowerCase();
   if (ipLower.startsWith('fc') || ipLower.startsWith('fd')) return true; // fc00::/7
   if (ipLower.startsWith('fe8') || ipLower.startsWith('fe9') || ipLower.startsWith('fea') || ipLower.startsWith('feb')) return true; // fe80::/10
 
-  const parts = ip.split('.').map(Number);
+  const parts = cleanIp.split('.').map(Number);
   if (parts.length !== 4 || parts.some((p) => isNaN(p))) return true; // invalid = block
   const [o1, o2, , ] = parts;
   if (o1 === 0) return true;               // 0.0.0.0/8
@@ -136,14 +137,14 @@ function setupNetworkGuard(): void {
         const host = parsed.hostname.toLowerCase();
 
         // Allow dev server and loopback in development mode
-        const isLoopback = host === 'localhost' || host === '127.0.0.1' || host === '::1';
+        const isLoopback = host === 'localhost' || host === '127.0.0.1' || host === '::1' || host === '[::1]';
         if (!app.isPackaged && isLoopback) {
           callback({ cancel: false });
           return;
         }
         if (devUrl) {
           const devParsed = new URL(devUrl);
-          const isDevLoopback = devParsed.hostname === 'localhost' || devParsed.hostname === '127.0.0.1' || devParsed.hostname === '::1';
+          const isDevLoopback = devParsed.hostname === 'localhost' || devParsed.hostname === '127.0.0.1' || devParsed.hostname === '::1' || devParsed.hostname === '[::1]';
           if ((isDevLoopback && isLoopback) || host === devParsed.hostname) {
             callback({ cancel: false });
             return;

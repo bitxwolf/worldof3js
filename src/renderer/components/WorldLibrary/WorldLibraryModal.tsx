@@ -353,9 +353,9 @@ export const WorldLibraryModal = () => {
           ...sceneGraph,
           code: generatedCode ?? undefined,
         } as unknown as SceneGraph);
-        if (res.success) {
+        if (res.success && res.data) {
           showNotification(`Exported HTML: ${res.data}`, 5000, 'success');
-        } else {
+        } else if (!res.success) {
           showNotification(`Export error: ${res.error.message}`, 4000, 'warning');
         }
       } else {

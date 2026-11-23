@@ -1,15 +1,17 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { parseDocument } from '../../llm/DocumentParser';
 import { useUIStore } from '../../store/uiStore';
 
 interface DocumentUploaderProps {
   onDocumentLoaded: (text: string, filename: string) => void;
   disabled?: boolean;
+  onClose?: () => void;
 }
 
 export const DocumentUploader = ({
   onDocumentLoaded,
   disabled = false,
+  onClose,
 }: DocumentUploaderProps) => {
   const [loading, setLoading] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
@@ -17,6 +19,17 @@ export const DocumentUploader = ({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const { showNotification } = useUIStore();
+
+  useEffect(() => {
+    if (!onClose) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onClose]);
 
   const processTextContent = useCallback(
     async (content: string, filename: string) => {
@@ -183,16 +196,28 @@ export const DocumentUploader = ({
     <div className="space-y-1.5">
       <div className="flex items-center justify-between">
         <span className="text-xs font-medium text-gray-400">Story Document (Optional):</span>
-        {loadedFile && !errorMessage && (
-          <span className="text-[10px] text-emerald-400 truncate max-w-[160px]">
-            ✓ {loadedFile}
-          </span>
-        )}
-        {errorMessage && (
-          <span className="text-[10px] text-rose-400 truncate max-w-[160px]" title={errorMessage}>
-            ⚠ Error loading file
-          </span>
-        )}
+        <div className="flex items-center gap-2">
+          {loadedFile && !errorMessage && (
+            <span className="text-[10px] text-emerald-400 truncate max-w-[140px]">
+              ✓ {loadedFile}
+            </span>
+          )}
+          {errorMessage && (
+            <span className="text-[10px] text-rose-400 truncate max-w-[140px]" title={errorMessage}>
+              ⚠ Error loading file
+            </span>
+          )}
+          {onClose && (
+            <button
+              type="button"
+              onClick={onClose}
+              title="Close dropzone (Esc)"
+              className="text-gray-400 hover:text-white text-xs px-1 hover:bg-gray-800 rounded transition-colors"
+            >
+              ✕
+            </button>
+          )}
+        </div>
       </div>
 
       <div

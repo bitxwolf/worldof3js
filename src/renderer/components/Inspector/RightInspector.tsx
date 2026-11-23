@@ -11,6 +11,7 @@ export const RightInspector = () => {
     selectedNode,
     updateSelectedNodePosition,
     updateSelectedNodeScale,
+    updateSelectedNodeRotation,
     tuningParams,
     setTuningParam,
     ipcLogs,
@@ -121,6 +122,7 @@ export const RightInspector = () => {
     type: 'ProceduralFoliageMesh',
     position: [4.2, 0.0, -6.5] as [number, number, number],
     scale: [1.0, 1.25, 1.0] as [number, number, number],
+    rotation: [0, 0, 0] as [number, number, number],
     roughness: tuningParams.roughness,
     metalness: tuningParams.metalness,
     castShadow: true,
@@ -277,6 +279,40 @@ export const RightInspector = () => {
                   max="50"
                   value={currentNode.scale[2].toFixed(2)}
                   onChange={(e) => updateSelectedNodeScale('z', parseFloat(e.target.value) || 0.01)}
+                  className="w-full bg-transparent font-mono text-white text-xs outline-none"
+                />
+              </div>
+            </div>
+
+            {/* Rotation X Y Z (in degrees) */}
+            <div className="grid grid-cols-3 gap-1.5">
+              <div className="bg-black/30 p-1.5 rounded border border-white/5">
+                <span className="text-[9px] text-cyan-400 block font-mono">ROT X°</span>
+                <input
+                  type="number"
+                  step="5"
+                  value={Math.round(((currentNode.rotation?.[0] ?? 0) * 180) / Math.PI)}
+                  onChange={(e) => updateSelectedNodeRotation('x', ((parseFloat(e.target.value) || 0) * Math.PI) / 180)}
+                  className="w-full bg-transparent font-mono text-white text-xs outline-none"
+                />
+              </div>
+              <div className="bg-black/30 p-1.5 rounded border border-white/5">
+                <span className="text-[9px] text-cyan-400 block font-mono">ROT Y°</span>
+                <input
+                  type="number"
+                  step="5"
+                  value={Math.round(((currentNode.rotation?.[1] ?? 0) * 180) / Math.PI)}
+                  onChange={(e) => updateSelectedNodeRotation('y', ((parseFloat(e.target.value) || 0) * Math.PI) / 180)}
+                  className="w-full bg-transparent font-mono text-white text-xs outline-none"
+                />
+              </div>
+              <div className="bg-black/30 p-1.5 rounded border border-white/5">
+                <span className="text-[9px] text-cyan-400 block font-mono">ROT Z°</span>
+                <input
+                  type="number"
+                  step="5"
+                  value={Math.round(((currentNode.rotation?.[2] ?? 0) * 180) / Math.PI)}
+                  onChange={(e) => updateSelectedNodeRotation('z', ((parseFloat(e.target.value) || 0) * Math.PI) / 180)}
                   className="w-full bg-transparent font-mono text-white text-xs outline-none"
                 />
               </div>

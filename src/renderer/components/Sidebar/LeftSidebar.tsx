@@ -162,6 +162,7 @@ export const LeftSidebar = () => {
       type: item.type,
       position: item.position,
       scale: item.scale,
+      rotation: item.rotation,
       roughness: item.roughness ?? 0.68,
       metalness: item.metalness ?? 0.1,
       castShadow: item.castShadow ?? true,

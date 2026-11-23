@@ -590,6 +590,7 @@ export const ThreeViewport = () => {
           icon,
           position: [obj.position.x, obj.position.y, obj.position.z],
           scale: [obj.scale.x, obj.scale.y, obj.scale.z],
+          rotation: [obj.rotation.x, obj.rotation.y, obj.rotation.z],
           roughness: obj.userData?.roughness ?? 0.68,
           metalness: obj.userData?.metalness ?? 0.1,
           castShadow: obj.castShadow,
@@ -1011,6 +1012,7 @@ export const ThreeViewport = () => {
           type: target.userData.type || 'Object3D',
           position: [target.position.x, target.position.y, target.position.z],
           scale: [target.scale.x, target.scale.y, target.scale.z],
+          rotation: [target.rotation.x, target.rotation.y, target.rotation.z],
           roughness: target.userData.roughness ?? 0.68,
           metalness: target.userData.metalness ?? 0.1,
           castShadow: true,
@@ -2101,8 +2103,8 @@ export const ThreeViewport = () => {
     const selectedObj = target as unknown as THREE.Object3D | undefined;
     if (selectedObj) {
       selectedObj.position.set(selectedNode.position[0], selectedNode.position[1], selectedNode.position[2]);
-      if ((selectedNode as any).rotation) selectedObj.rotation.set((selectedNode as any).rotation[0], (selectedNode as any).rotation[1], (selectedNode as any).rotation[2]);
-      if ((selectedNode as any).scale) selectedObj.scale.set((selectedNode as any).scale[0], (selectedNode as any).scale[1], (selectedNode as any).scale[2]);
+      if (selectedNode.rotation) selectedObj.rotation.set(selectedNode.rotation[0], selectedNode.rotation[1], selectedNode.rotation[2]);
+      if (selectedNode.scale) selectedObj.scale.set(selectedNode.scale[0], selectedNode.scale[1], selectedNode.scale[2]);
       if (selectionBoxRef.current) {
         if ((selectedObj as THREE.Mesh).geometry || selectedObj.children.length > 0) {
           selectionBoxRef.current.setFromObject(selectedObj);
@@ -2187,6 +2189,7 @@ export const ThreeViewport = () => {
         );
       } catch (err) {
         console.error('[Export] GLTFExporter not available:', err);
+        useUIStore.getState().showNotification('GLTF export failed', 3000, 'error');
       }
     };
     window.addEventListener('engine:export-gltf', handleExport);
@@ -2635,7 +2638,13 @@ export const ThreeViewport = () => {
             if (useUIStore.getState().cameraMode === 'walk') {
               useUIStore.getState().setCameraMode('orbit');
             }
-            setIsCircleSelectActive((prev) => !prev);
+            setIsCircleSelectActive((prev) => {
+              const next = !prev;
+              if (!next) {
+                useOrchestratorStore.getState().clearSelection();
+              }
+              return next;
+            });
           }}
           title="Toggle Circle Select (C)"
           className={`px-2.5 py-1 rounded-md mac-subtle-blur border text-xs transition flex items-center space-x-1 cursor-pointer ${

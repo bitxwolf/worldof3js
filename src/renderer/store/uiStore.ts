@@ -16,6 +16,7 @@ export interface SceneHierarchyItem {
   icon: string;
   position: [number, number, number];
   scale: [number, number, number];
+  rotation?: [number, number, number];
   roughness?: number;
   metalness?: number;
   castShadow?: boolean;
@@ -27,6 +28,7 @@ export interface SelectedNodeInfo {
   type: string;
   position: [number, number, number];
   scale: [number, number, number];
+  rotation?: [number, number, number];
   roughness?: number;
   metalness?: number;
   castShadow?: boolean;
@@ -190,6 +192,7 @@ interface UIState {
   setSceneHierarchy: (items: SceneHierarchyItem[]) => void;
   updateSelectedNodePosition: (axis: 'x' | 'y' | 'z', value: number) => void;
   updateSelectedNodeScale: (axis: 'x' | 'y' | 'z', value: number) => void;
+  updateSelectedNodeRotation: (axis: 'x' | 'y' | 'z', value: number) => void;
 
   setTelemetry: (t: Partial<UIState['telemetry']>) => void;
   addIpcLog: (text: string, type?: IpcLogEntry['type']) => void;
@@ -644,6 +647,20 @@ export const useUIStore = create<UIState>((set) => ({
         selectedNode: {
           ...state.selectedNode,
           scale,
+        },
+      };
+    }),
+  updateSelectedNodeRotation: (axis, value) =>
+    set((state) => {
+      if (!state.selectedNode) return state;
+      const rot: [number, number, number] = [...(state.selectedNode.rotation || [0, 0, 0])];
+      if (axis === 'x') rot[0] = value;
+      else if (axis === 'y') rot[1] = value;
+      else if (axis === 'z') rot[2] = value;
+      return {
+        selectedNode: {
+          ...state.selectedNode,
+          rotation: rot,
         },
       };
     }),

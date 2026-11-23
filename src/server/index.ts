@@ -52,7 +52,12 @@ function localOriginGuard(req: express.Request, res: express.Response, next: exp
   if (origin) {
     try {
       const parsed = new URL(origin);
-      if (parsed.hostname !== 'localhost' && parsed.hostname !== '127.0.0.1' && parsed.hostname !== '::1') {
+      if (
+        parsed.hostname !== 'localhost' &&
+        parsed.hostname !== '127.0.0.1' &&
+        parsed.hostname !== '::1' &&
+        parsed.hostname !== '[::1]'
+      ) {
         res.status(403).json({ success: false, error: { name: 'Forbidden', message: 'Cross-origin requests are not allowed' } });
         return;
       }

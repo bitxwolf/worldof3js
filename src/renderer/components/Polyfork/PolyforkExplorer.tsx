@@ -410,8 +410,18 @@ export const PolyforkExplorer: React.FC = () => {
   const handleCopyId = () => {
     if (!selectedAsset) return;
     const tag = `polyfork:${selectedAsset.id}`;
-    navigator.clipboard.writeText(tag);
-    showNotification(`Copied "${tag}" to clipboard`, 2500, 'info');
+    if (navigator?.clipboard?.writeText) {
+      navigator.clipboard
+        .writeText(tag)
+        .then(() => {
+          showNotification(`Copied "${tag}" to clipboard`, 2500, 'info');
+        })
+        .catch(() => {
+          showNotification(`Asset ID: "${tag}"`, 3000, 'info');
+        });
+    } else {
+      showNotification(`Asset ID: "${tag}"`, 3000, 'info');
+    }
   };
 
   // Download / Pre-cache

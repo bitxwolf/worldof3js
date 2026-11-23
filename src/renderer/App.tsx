@@ -90,6 +90,7 @@ const App = () => {
             {showDocUploader && (
               <div className={`absolute bottom-16 ${leftSidebarOpen ? 'left-74' : 'left-4'} z-50 p-2 bg-gray-950/95 border border-gray-800 rounded-xl shadow-2xl min-w-[280px] transition-all duration-200`}>
                 <DocumentUploader
+                  onClose={() => setShowDocUploader(false)}
                   onDocumentLoaded={(text, filename) => {
                     useWorldStore.getState().setUploadedDocument(text);
                     useWorldStore.getState().setFlag('hasDocument', true);

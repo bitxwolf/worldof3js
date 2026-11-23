@@ -62,6 +62,9 @@ export const UpdatePromptBar = ({
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleUpdate();
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      setIsExpanded(false);
     }
   };
 

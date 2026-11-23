@@ -10,9 +10,17 @@ export const JSONInspector = () => {
   if (!sceneGraph) return null;
 
   const handleCopy = (): void => {
-    navigator.clipboard.writeText(JSON.stringify(sceneGraph, null, 2));
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
+    if (navigator?.clipboard?.writeText) {
+      navigator.clipboard
+        .writeText(JSON.stringify(sceneGraph, null, 2))
+        .then(() => {
+          setCopied(true);
+          setTimeout(() => setCopied(false), 1500);
+        })
+        .catch(() => {
+          useUIStore.getState().showNotification('Failed to copy JSON to clipboard', 3000, 'warning');
+        });
+    }
   };
 
   return (
