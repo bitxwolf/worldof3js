@@ -59,5 +59,6 @@ describe('App Launch Fixes & Resilience Verification', () => {
     const content = fs.readFileSync(indexPath, 'utf-8');
 
     expect(content).toContain("process.env['ELECTRON_RENDERER_URL']");
+    expect(content).toContain("!app.isPackaged ? 'http://localhost:5173'");
   });
 });

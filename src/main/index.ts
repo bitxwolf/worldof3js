@@ -61,7 +61,10 @@ function createWindow(): void {
     return { action: 'deny' };
   });
 
-  const devServerUrl = process.env['ELECTRON_RENDERER_URL'] || process.env['VITE_DEV_SERVER_URL'];
+  const devServerUrl =
+    process.env['ELECTRON_RENDERER_URL'] ||
+    process.env['VITE_DEV_SERVER_URL'] ||
+    (!app.isPackaged ? 'http://localhost:5173' : undefined);
 
   // Prevent navigation away from the local app (allow dev server URL and file://, block external navigation)
   mainWindow.webContents.on('will-navigate', (event, navigationUrl) => {
@@ -121,13 +124,20 @@ function setupNetworkGuard(): void {
     { urls: ['http://*/*', 'https://*/*'] },
     (details, callback) => {
       // Allow requests to known safe CDNs (Three.js) and dev server
-      const devUrl = process.env['ELECTRON_RENDERER_URL'] || process.env['VITE_DEV_SERVER_URL'];
+      const devUrl =
+        process.env['ELECTRON_RENDERER_URL'] ||
+        process.env['VITE_DEV_SERVER_URL'] ||
+        (!app.isPackaged ? 'http://localhost:5173' : undefined);
       try {
         const parsed = new URL(details.url);
         const host = parsed.hostname.toLowerCase();
 
         // Allow dev server and loopback in development mode
         const isLoopback = host === 'localhost' || host === '127.0.0.1' || host === '::1';
+        if (!app.isPackaged && isLoopback) {
+          callback({ cancel: false });
+          return;
+        }
         if (devUrl) {
           const devParsed = new URL(devUrl);
           const isDevLoopback = devParsed.hostname === 'localhost' || devParsed.hostname === '127.0.0.1' || devParsed.hostname === '::1';
