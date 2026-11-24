@@ -18,7 +18,7 @@ export const JSONInspector = () => {
     return () => window.removeEventListener('keydown', handleKey);
   }, [jsonInspectorOpen, toggleJsonInspector]);
 
-  if (!sceneGraph) return null;
+  if (!sceneGraph || !jsonInspectorOpen) return null;
 
   const handleCopy = (): void => {
     if (navigator?.clipboard?.writeText) {
@@ -35,30 +35,34 @@ export const JSONInspector = () => {
   };
 
   return (
-    <div className="border border-gray-800 rounded-xl bg-gray-900/90 overflow-hidden text-xs">
-      <div
-        onClick={toggleJsonInspector}
-        className="flex items-center justify-between px-3 py-2 bg-gray-900 cursor-pointer select-none hover:bg-gray-850"
-      >
-        <span className="font-semibold text-gray-300 flex items-center gap-2">
-          <span>{jsonInspectorOpen ? '▼' : '▶'}</span>
+    <div className="border border-gray-800 rounded-xl bg-gray-900/95 backdrop-blur-xl shadow-2xl overflow-hidden text-xs max-w-2xl mx-auto z-35 pointer-events-auto">
+      <div className="flex items-center justify-between px-3.5 py-2.5 bg-gray-900/90 border-b border-gray-800 select-none">
+        <span className="font-semibold text-gray-200 flex items-center gap-2">
+          <span className="text-blue-400">📋</span>
           <span>Scene Graph JSON ({sceneGraph.world?.name || 'World'})</span>
         </span>
-        <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center gap-2">
           <button
+            type="button"
             onClick={handleCopy}
-            className="text-gray-400 hover:text-white px-2 py-0.5 rounded bg-gray-800 text-[10px]"
+            className="text-gray-300 hover:text-white px-2 py-1 rounded bg-gray-800 hover:bg-gray-700 text-[10px] font-medium border border-gray-750 transition"
           >
-            {copied ? 'Copied!' : 'Copy JSON'}
+            {copied ? '✓ Copied!' : 'Copy JSON'}
+          </button>
+          <button
+            type="button"
+            onClick={toggleJsonInspector}
+            className="text-gray-400 hover:text-white px-1.5 py-0.5 rounded text-xs transition"
+            title="Close JSON Inspector (Esc)"
+          >
+            ✕
           </button>
         </div>
       </div>
 
-      {jsonInspectorOpen && (
-        <pre className="p-3 bg-gray-950 text-emerald-400 max-h-80 overflow-auto font-mono text-[11px] leading-relaxed border-t border-gray-800">
-          {JSON.stringify(sceneGraph, null, 2)}
-        </pre>
-      )}
+      <pre className="p-3.5 bg-gray-950/95 text-emerald-400 max-h-72 overflow-auto font-mono text-[11px] leading-relaxed">
+        {JSON.stringify(sceneGraph, null, 2)}
+      </pre>
     </div>
   );
 };

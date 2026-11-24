@@ -39,13 +39,18 @@ export const ImageUploader = ({
       const newImages: UploadedImage[] = [];
       for (const file of Array.from(files)) {
         if (!file.type.startsWith('image/')) continue;
-        const base64 = await fileToBase64(file);
-        newImages.push({
-          base64,
-          mimeType: file.type,
-          tag: 'character',
-          preview: URL.createObjectURL(file),
-        });
+        try {
+          const base64 = await fileToBase64(file);
+          if (!base64 || base64.trim().length < 20) continue;
+          newImages.push({
+            base64: base64.trim(),
+            mimeType: file.type || 'image/png',
+            tag: 'character',
+            preview: URL.createObjectURL(file),
+          });
+        } catch (err) {
+          console.warn('[ImageUploader] Failed to read uploaded file:', file.name, err);
+        }
       }
       const updated = [...images, ...newImages];
       setImages(updated);
@@ -165,7 +170,15 @@ export const ImageUploader = ({
         <div className="space-y-2">
           {images.map((img, i) => (
             <div key={i} className="flex items-center gap-3 bg-gray-900 rounded-lg p-2 border border-gray-800">
-              <img src={img.preview} alt="Preview" className="w-10 h-10 rounded object-cover" />
+              <img
+                src={img.preview}
+                alt="Preview"
+                className="w-10 h-10 rounded object-cover bg-gray-800"
+                onError={(e) => {
+                  (e.target as HTMLImageElement).src =
+                    'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="%23888" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>';
+                }}
+              />
               <select
                 value={img.tag}
                 onChange={(e) => handleTagChange(i, e.target.value as ImageTag)}

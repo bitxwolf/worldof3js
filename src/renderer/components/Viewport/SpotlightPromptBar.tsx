@@ -65,8 +65,8 @@ export const SpotlightPromptBar = () => {
         return;
       }
 
-      // Fallback: If orchestrator returned null/unavailable, generate world via unified api (parseWorld)
-      if (api?.parseWorld) {
+      // Fallback: If orchestrator returned null/unavailable, generate world via unified api (parseWorld) (only for new worlds, not selection editing)
+      if (!activeSelection && api?.parseWorld) {
         const parseRes = await api.parseWorld({
           text,
           document: uploadedDocument ?? undefined,
@@ -92,12 +92,20 @@ export const SpotlightPromptBar = () => {
       }
 
       const storeErr = useOrchestratorStore.getState().error;
-      showNotification(storeErr || 'Generation failed. Check API key in Settings.', 5000, 'error');
-      useWorldStore.getState().setCustomWorldActive(false);
+      showNotification(
+        storeErr || (activeSelection ? 'Selection update failed. Check API key in Settings.' : 'Generation failed. Check API key in Settings.'),
+        5000,
+        'error'
+      );
+      if (!activeSelection) {
+        useWorldStore.getState().setCustomWorldActive(false);
+      }
     } catch (err: unknown) {
       console.warn('Generation failed:', err);
-      showNotification('Unexpected generation error', 5000, 'error');
-      useWorldStore.getState().setCustomWorldActive(false);
+      showNotification(activeSelection ? 'Selection update error' : 'Unexpected generation error', 5000, 'error');
+      if (!activeSelection) {
+        useWorldStore.getState().setCustomWorldActive(false);
+      }
     } finally {
       setTimeout(() => {
         setGenerating(false);

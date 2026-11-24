@@ -46,7 +46,8 @@ export class SceneManager {
       if (this._disposed || !this.renderer.domElement.isConnected) return;
 
       this.rafId = requestAnimationFrame(loop);
-      const delta = this.clock.getDelta();
+      const rawDelta = this.clock.getDelta();
+      const delta = Math.max(0, Math.min(Number.isFinite(rawDelta) ? rawDelta : 0, 0.1));
       for (const cb of this.onFrameCallbacks) {
         cb(delta);
       }

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { ResourceRegistry } from './ResourceRegistry';
 import { useUIStore } from '../store/uiStore';
+import { AudioManager } from './AudioManager';
 
 export type WeatherType = 'clear' | 'fog' | 'rain' | 'snow' | 'storm';
 
@@ -220,6 +221,7 @@ export class WeatherSystem {
     }
 
     try {
+      AudioManager.getInstance().playLightning(this.intensity);
       useUIStore.getState().addIpcLog('[WEATHER:LIGHTNING] Procedural lightning strike discharged across overcast sky.', 'warn');
     } catch {
       // In tests or outside React/Zustand context
@@ -229,8 +231,8 @@ export class WeatherSystem {
   public update(delta: number, cameraPosition: THREE.Vector3): void {
     if (this.isDisposed) return;
 
-    // Guard against large frame deltas (e.g. background tab or paused debugger)
-    const clampedDelta = Math.min(delta, 0.1);
+    // Guard against large, negative, or NaN frame deltas (e.g. background tab or paused debugger)
+    const clampedDelta = Math.max(0, Math.min(Number.isFinite(delta) ? delta : 0, 0.1));
     this.totalTime += clampedDelta;
 
     const isRainActive = (this.weatherType === 'rain' || this.weatherType === 'storm') && this.intensity > 0.01;

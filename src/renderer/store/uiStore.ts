@@ -192,7 +192,7 @@ interface UIState {
   setSunlight: (params: Partial<SunlightParams>) => void;
   setMoonlight: (params: Partial<MoonlightParams>) => void;
   applyAtmosphericPreset: (presetName: string) => void;
-  syncFromSceneGraph: (graph: SceneGraph) => void;
+  syncFromSceneGraph: (graph: Partial<SceneGraph>) => void;
 
   setSelectedNode: (node: SelectedNodeInfo | null) => void;
   setSceneHierarchy: (items: SceneHierarchyItem[]) => void;
@@ -303,8 +303,8 @@ export const useUIStore = create<UIState>((set) => ({
   togglePolyfork: () => set((s) => ({ isPolyforkOpen: !s.isPolyforkOpen })),
   setIsDocUploaderOpen: (isDocUploaderOpen) => set({ isDocUploaderOpen }),
   setIsImageUploaderOpen: (isImageUploaderOpen) => set({ isImageUploaderOpen }),
-  toggleDocUploader: () => set((s) => ({ isDocUploaderOpen: !s.isDocUploaderOpen })),
-  toggleImageUploader: () => set((s) => ({ isImageUploaderOpen: !s.isImageUploaderOpen })),
+  toggleDocUploader: () => set((s) => ({ isDocUploaderOpen: !s.isDocUploaderOpen, isImageUploaderOpen: false })),
+  toggleImageUploader: () => set((s) => ({ isImageUploaderOpen: !s.isImageUploaderOpen, isDocUploaderOpen: false })),
   setGenerating: (isGenerating, step = null) =>
     set({ isGenerating, generationStep: step, generationError: null }),
   setIsUpdatingWorld: (isUpdatingWorld) => set({ isUpdatingWorld }),
@@ -390,12 +390,30 @@ export const useUIStore = create<UIState>((set) => ({
   setActiveBiome: (activeBiome) => set({ activeBiome }),
   setGenerationMode: (generationMode) => set({ generationMode }),
   setTuningParam: (key, value) =>
-    set((state) => ({
-      tuningParams: {
-        ...state.tuningParams,
-        [key]: value,
-      },
-    })),
+    set((state) => {
+      let sanitizedValue = value as number;
+      if (typeof value === 'number') {
+        if (!Number.isFinite(value)) {
+          sanitizedValue = state.tuningParams[key] as number;
+        } else if (key === 'fogDensity') {
+          sanitizedValue = Math.max(0.001, Math.min(0.15, value));
+        } else if (key === 'elevation') {
+          sanitizedValue = Math.max(1.0, Math.min(50.0, value));
+        } else if (key === 'density') {
+          sanitizedValue = Math.max(5, Math.min(250, Math.round(value)));
+        } else if (key === 'sunAngle') {
+          sanitizedValue = Math.max(5, Math.min(175, value));
+        } else if (key === 'roughness' || key === 'metalness') {
+          sanitizedValue = Math.max(0, Math.min(1, value));
+        }
+      }
+      return {
+        tuningParams: {
+          ...state.tuningParams,
+          [key]: sanitizedValue as TuningParams[typeof key],
+        },
+      };
+    }),
 
   setWeather: (type) =>
     set((state) => {
@@ -455,18 +473,21 @@ export const useUIStore = create<UIState>((set) => ({
     set((state) => {
       const updated: SunlightParams = {
         elevation:
-          params.elevation !== undefined
+          params.elevation !== undefined && Number.isFinite(params.elevation)
             ? Math.max(5, Math.min(90, params.elevation))
             : state.sunlight.elevation,
         azimuth:
-          params.azimuth !== undefined
+          params.azimuth !== undefined && Number.isFinite(params.azimuth)
             ? ((params.azimuth % 360) + 360) % 360
             : state.sunlight.azimuth,
         intensity:
-          params.intensity !== undefined
+          params.intensity !== undefined && Number.isFinite(params.intensity)
             ? Math.max(0.1, Math.min(3.0, params.intensity))
             : state.sunlight.intensity,
-        color: params.color !== undefined ? params.color : state.sunlight.color,
+        color:
+          typeof params.color === 'string' && params.color.trim()
+            ? params.color.trim()
+            : state.sunlight.color,
       };
 
       try {
@@ -496,20 +517,23 @@ export const useUIStore = create<UIState>((set) => ({
     set((state) => {
       const updated: MoonlightParams = {
         elevation:
-          params.elevation !== undefined
+          params.elevation !== undefined && Number.isFinite(params.elevation)
             ? Math.max(5, Math.min(90, params.elevation))
             : state.moonlight.elevation,
         azimuth:
-          params.azimuth !== undefined
+          params.azimuth !== undefined && Number.isFinite(params.azimuth)
             ? ((params.azimuth % 360) + 360) % 360
             : state.moonlight.azimuth,
         intensity:
-          params.intensity !== undefined
+          params.intensity !== undefined && Number.isFinite(params.intensity)
             ? Math.max(0.05, Math.min(1.5, params.intensity))
             : state.moonlight.intensity,
-        color: params.color !== undefined ? params.color : state.moonlight.color,
+        color:
+          typeof params.color === 'string' && params.color.trim()
+            ? params.color.trim()
+            : state.moonlight.color,
         starDensity:
-          params.starDensity !== undefined
+          params.starDensity !== undefined && Number.isFinite(params.starDensity)
             ? Math.max(0, Math.min(1.0, params.starDensity))
             : state.moonlight.starDensity,
       };
@@ -536,9 +560,12 @@ export const useUIStore = create<UIState>((set) => ({
       }
       if (
         graph.atmosphere?.fogDensity !== undefined &&
-        graph.atmosphere.fogDensity !== state.tuningParams.fogDensity
+        Number.isFinite(graph.atmosphere.fogDensity)
       ) {
-        updates.tuningParams = { ...state.tuningParams, fogDensity: graph.atmosphere.fogDensity };
+        const safeFog = Math.max(0.001, Math.min(0.15, graph.atmosphere.fogDensity));
+        if (safeFog !== state.tuningParams.fogDensity) {
+          updates.tuningParams = { ...state.tuningParams, fogDensity: safeFog };
+        }
       }
       return Object.keys(updates).length > 0 ? updates : state;
     }),

@@ -58,6 +58,7 @@ export class PlayerController {
 
   private keyDownHandler: (e: KeyboardEvent) => void;
   private keyUpHandler: (e: KeyboardEvent) => void;
+  private resetKeysBound: () => void;
 
   constructor(
     private readonly camera: THREE.PerspectiveCamera,
@@ -67,8 +68,22 @@ export class PlayerController {
 
     this.keyDownHandler = (e: KeyboardEvent) => this.onKey(e, true);
     this.keyUpHandler = (e: KeyboardEvent) => this.onKey(e, false);
-    window.addEventListener('keydown', this.keyDownHandler);
-    window.addEventListener('keyup', this.keyUpHandler);
+    this.resetKeysBound = () => this.resetKeys();
+
+    this.controls.addEventListener('unlock', this.resetKeysBound);
+    if (typeof window !== 'undefined') {
+      window.addEventListener('keydown', this.keyDownHandler);
+      window.addEventListener('keyup', this.keyUpHandler);
+      window.addEventListener('blur', this.resetKeysBound);
+    }
+  }
+
+  resetKeys(): void {
+    this.keys.forward = false;
+    this.keys.backward = false;
+    this.keys.left = false;
+    this.keys.right = false;
+    this.keys.sprint = false;
   }
 
   /** Call with all objects tagged `userData.collidable === true` after building a world. */
@@ -86,7 +101,11 @@ export class PlayerController {
 
   requestLock(): void {
     if (this.enabled) {
-      this.controls.lock();
+      try {
+        this.controls.lock();
+      } catch {
+        // Safe fallback if gesture or permissions fail
+      }
     }
   }
 
@@ -98,6 +117,8 @@ export class PlayerController {
   update(delta: number): void {
     if (!this.controls.isLocked || !this.enabled) return;
 
+    // Clamp delta to prevent physics explosion/tunneling during lag spikes
+    const clampedDelta = Math.max(0, Math.min(Number.isFinite(delta) ? delta : 0, 0.1));
     const speed = this.keys.sprint ? SPRINT_SPEED : WALK_SPEED;
     const pos = this.camera.position;
 
@@ -109,7 +130,7 @@ export class PlayerController {
     if (this.keys.right) moveDir.x += 1;
 
     if (moveDir.lengthSq() > 0) {
-      moveDir.normalize().multiplyScalar(speed * delta);
+      moveDir.normalize().multiplyScalar(speed * clampedDelta);
       // Transform to camera-relative direction (ignore Y)
       const worldDir = moveDir.applyQuaternion(this.camera.quaternion);
       worldDir.y = 0;
@@ -195,13 +216,24 @@ export class PlayerController {
     }
 
     if (!this.isGrounded) {
-      this.verticalSpeed -= GRAVITY * delta;
-      pos.y += this.verticalSpeed * delta;
+      this.verticalSpeed -= GRAVITY * clampedDelta;
+      pos.y += this.verticalSpeed * clampedDelta;
+      // Void protection: prevent falling to negative infinity, reset to safe terrain bounds
+      if (pos.y < -30) {
+        pos.set(
+          THREE.MathUtils.clamp(pos.x, -70, 70),
+          PLAYER_HEIGHT,
+          THREE.MathUtils.clamp(pos.z, -70, 70)
+        );
+        this.verticalSpeed = 0;
+      }
     }
 
     // ── Emit player-moved event for EventSystem ───────────────────────────
     this._scratchEventPos.copy(pos);
-    window.dispatchEvent(this._playerMovedEvent);
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(this._playerMovedEvent);
+    }
   }
 
   private onKey(e: KeyboardEvent, pressed: boolean): void {
@@ -229,8 +261,12 @@ export class PlayerController {
   }
 
   dispose(): void {
+    this.controls.removeEventListener('unlock', this.resetKeysBound);
     this.controls.dispose();
-    window.removeEventListener('keydown', this.keyDownHandler);
-    window.removeEventListener('keyup', this.keyUpHandler);
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('keydown', this.keyDownHandler);
+      window.removeEventListener('keyup', this.keyUpHandler);
+      window.removeEventListener('blur', this.resetKeysBound);
+    }
   }
 }

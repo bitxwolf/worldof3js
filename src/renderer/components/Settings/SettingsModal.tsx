@@ -193,6 +193,7 @@ export const SettingsModal = () => {
     } else {
       transport.saveSettings(payload);
     }
+    useUIStore.getState().showNotification?.('Settings saved', 3000, 'success');
     onClose();
   };
 

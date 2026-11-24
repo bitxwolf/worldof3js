@@ -1,13 +1,21 @@
 import { useEffect } from 'react';
 import { useInventoryStore } from '../../store/inventoryStore';
+import { useUIStore } from '../../store/uiStore';
 
 const SLOT_COUNT = 8;
 
+export const shouldRenderInventoryBar = (cameraMode: string): boolean => {
+  return cameraMode === 'walk';
+};
+
 export const InventoryBar = () => {
   const { items, selectedSlot, selectSlot } = useInventoryStore();
+  const cameraMode = useUIStore((s) => s.cameraMode);
 
   // Keyboard shortcut listener: Keys 1 to 8 select corresponding slot
   useEffect(() => {
+    if (!shouldRenderInventoryBar(cameraMode)) return;
+
     const handleKeyDown = (e: KeyboardEvent) => {
       // Don't trigger if user is holding modifiers (Ctrl, Meta, Alt)
       if (e.ctrlKey || e.metaKey || e.altKey) return;
@@ -31,7 +39,9 @@ export const InventoryBar = () => {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectSlot]);
+  }, [selectSlot, cameraMode]);
+
+  if (!shouldRenderInventoryBar(cameraMode)) return null;
 
   return (
     <div className="fixed bottom-3 left-1/2 -translate-x-1/2 z-20 pointer-events-auto">

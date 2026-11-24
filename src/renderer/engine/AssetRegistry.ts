@@ -229,7 +229,7 @@ export function validateTextureUrl(url: string): void {
 
   const trimmed = url.trim();
 
-  // 1. Allow safe local / relative paths (starting with '/', './', '../', or asset paths)
+  // 1. Allow safe local / relative paths (starting with '/', './', '../', asset paths, or safe bare relative filenames)
   if (
     (trimmed.startsWith('/') && !trimmed.startsWith('//')) ||
     trimmed.startsWith('./') ||
@@ -237,7 +237,8 @@ export function validateTextureUrl(url: string): void {
     trimmed.startsWith('../') ||
     trimmed.startsWith('..\\') ||
     /^assets?([/\\]|$)/i.test(trimmed) ||
-    /^textures?([/\\]|$)/i.test(trimmed)
+    /^textures?([/\\]|$)/i.test(trimmed) ||
+    (!trimmed.includes(':') && !trimmed.startsWith('//') && /\.(glb|gltf|png|jpe?g|webp|svg|bin)$/i.test(trimmed))
   ) {
     return;
   }
@@ -332,12 +333,19 @@ export class AssetRegistry {
 
     const trimmed = assetIdOrUrl.trim();
 
-    // Direct HTTP/HTTPS/data/blob URL (e.g. from WorldObject.modelUrl)
+    // Direct HTTP/HTTPS/data/blob URL or local file path (e.g. from WorldObject.modelUrl or local GLTF/GLB)
     const isDirectUrl =
       trimmed.startsWith('http://') ||
       trimmed.startsWith('https://') ||
       trimmed.startsWith('blob:') ||
-      trimmed.startsWith('data:');
+      trimmed.startsWith('data:') ||
+      (trimmed.startsWith('/') && !trimmed.startsWith('//')) ||
+      trimmed.startsWith('./') ||
+      trimmed.startsWith('.\\') ||
+      trimmed.startsWith('../') ||
+      trimmed.startsWith('..\\') ||
+      /^assets?[/\\]/i.test(trimmed) ||
+      ((trimmed.toLowerCase().endsWith('.glb') || trimmed.toLowerCase().endsWith('.gltf')) && !trimmed.startsWith('polyfork:'));
 
     if (isDirectUrl) {
       validateTextureUrl(trimmed); // SSRF defense on external model URLs
@@ -463,5 +471,67 @@ export class AssetRegistry {
     this.models.clear();
 
     console.debug('[AssetRegistry] All cached assets disposed');
+  }
+
+  /**
+   * Safely sweep unreferenced cached textures and models.
+   * If an activeScene is provided, models and textures whose geometries, materials,
+   * or textures are currently used by any Mesh in activeScene will NOT be disposed.
+   */
+  sweepUnreferenced(activeScene?: THREE.Scene): void {
+    const activeGeometries = new Set<THREE.BufferGeometry>();
+    const activeMaterials = new Set<THREE.Material>();
+    const activeTextures = new Set<THREE.Texture>();
+
+    if (activeScene) {
+      activeScene.traverse((obj) => {
+        if (obj instanceof THREE.Mesh) {
+          if (obj.geometry) activeGeometries.add(obj.geometry);
+          const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+          mats.forEach((m) => {
+            if (m) {
+              activeMaterials.add(m);
+              for (const key of Object.keys(m)) {
+                const val = (m as unknown as Record<string, unknown>)[key];
+                if (val && typeof val === 'object' && 'isTexture' in val && (val as { isTexture: boolean }).isTexture) {
+                  activeTextures.add(val as THREE.Texture);
+                }
+              }
+            }
+          });
+        }
+      });
+    }
+
+    // Safely sweep textures not present in active scene
+    for (const [key, texture] of this.textures.entries()) {
+      if (!activeTextures.has(texture)) {
+        texture.dispose();
+        this.textures.delete(key);
+      }
+    }
+
+    // Safely sweep models whose geometries and materials are not present in active scene
+    for (const [key, group] of this.models.entries()) {
+      let isModelInUse = false;
+      group.traverse((obj) => {
+        if (obj instanceof THREE.Mesh) {
+          if (obj.geometry && activeGeometries.has(obj.geometry)) isModelInUse = true;
+          const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+          if (mats.some((m) => m && activeMaterials.has(m))) isModelInUse = true;
+        }
+      });
+
+      if (!isModelInUse) {
+        group.traverse((obj) => {
+          if (obj instanceof THREE.Mesh) {
+            obj.geometry?.dispose();
+            const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+            mats.forEach((m) => m?.dispose());
+          }
+        });
+        this.models.delete(key);
+      }
+    }
   }
 }

@@ -12,18 +12,27 @@ export const EXPORT_BLOCKED_PATTERNS: ReadonlyArray<RegExp> = [
   /\bgetPrototypeOf\b/,
   /\bReflect\b/,
   /\bProxy\b/,
-  // DOM / globals
+  // DOM / globals / window proxies
   /\bdocument\b/,
   /\bwindow\b/,
   /\bglobalThis\b/,
+  /\btop\b/,
+  /\bself\b/,
+  /\bparent\b/,
+  /\blocation\b/,
+  /\bnavigator\b/,
   // Network
   /\bfetch\s*\(/,
   /\bXMLHttpRequest\b/,
   /\bWebSocket\b/,
   /\bimportScripts\b/,
-  // Eval / code generation
+  // Eval / code generation / dialog prompts
   /\beval\s*\(/,
   /\bFunction\s*\(/,
+  /\balert\s*\(/,
+  /\bprompt\s*\(/,
+  /\bconfirm\s*\(/,
+  /\bopen\s*\(/,
   // Module / require
   /\bimport\s+/,
   /\bimport\s*\(/,
@@ -31,8 +40,9 @@ export const EXPORT_BLOCKED_PATTERNS: ReadonlyArray<RegExp> = [
   // Storage
   /\blocalStorage\b/,
   /\bsessionStorage\b/,
+  /\bindexedDB\b/,
   // Bracket notation to dangerous props
-  /\[\s*['"`](?:constructor|__proto__|prototype|window|document|globalThis|eval|Function|fetch)\b/,
+  /\[\s*['"`](?:constructor|__proto__|prototype|window|document|globalThis|top|self|parent|location|navigator|indexedDB|eval|Function|fetch)\b/,
 ];
 
 /**
@@ -90,7 +100,10 @@ export function generateStandaloneHtml(graph: SceneGraph & { code?: string }): s
   if ('code' in cleanGraph) {
     cleanGraph.code = safeCode || undefined;
   }
-  const serializedGraph = JSON.stringify(cleanGraph).replace(/<\/script>/gi, '<\\/script>');
+  const serializedGraph = JSON.stringify(cleanGraph)
+    .replace(/<\/script>/gi, '<\\/script>')
+    .replace(/<script/gi, '<\\/script')
+    .replace(/<!--/g, '<\\!--');
 
   const biome = graph?.world?.biome || 'forest';
   const groundColorHex =
@@ -240,7 +253,8 @@ export function generateStandaloneHtml(graph: SceneGraph & { code?: string }): s
           roughness: 0.7
         });
         const mesh = new THREE.Mesh(geo, mat);
-        mesh.position.set(...obj.position);
+        const op = Array.isArray(obj.position) ? obj.position : [0, 0, 0];
+        mesh.position.set(op[0] || 0, op[1] || 0, op[2] || 0);
         mesh.castShadow = true;
         mesh.receiveShadow = true;
         mesh.userData = { ...obj };
@@ -269,7 +283,8 @@ export function generateStandaloneHtml(graph: SceneGraph & { code?: string }): s
         head.castShadow = true;
         group.add(head);
 
-        group.position.set(...char.position);
+        const cp = Array.isArray(char.position) ? char.position : [0, 0, 0];
+        group.position.set(cp[0] || 0, cp[1] || 0, cp[2] || 0);
         group.userData = { ...char, isNPC: true };
         scene.add(group);
         interactables.push(group);

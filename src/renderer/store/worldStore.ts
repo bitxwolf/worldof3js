@@ -77,6 +77,7 @@ export const useWorldStore = create<WorldState>((set) => ({
         flags: {},
       };
       return {
+        isCustomWorldActive: true,
         sceneGraph: {
           ...baseGraph,
           ...partial,

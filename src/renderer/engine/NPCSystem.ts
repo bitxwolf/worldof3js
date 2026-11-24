@@ -359,9 +359,11 @@ export class NPCSystem {
   }
 
   tick(delta: number, playerPosition: THREE.Vector3): void {
+    const clampedDelta = Math.max(0, Math.min(Number.isFinite(delta) ? delta : 0, 0.1));
+
     for (const npc of this.npcs) {
       if (npc.mixer) {
-        npc.mixer.update(delta);
+        npc.mixer.update(clampedDelta);
       }
 
       // Look at player if within 10 units
@@ -376,24 +378,28 @@ export class NPCSystem {
         this._dummyObj.position.copy(npc.group.position);
         this._dummyObj.lookAt(this._scratchLook);
         this._scratchQuat.copy(this._dummyObj.quaternion);
-        npc.group.quaternion.slerp(this._scratchQuat, delta * 3);
+        npc.group.quaternion.slerp(this._scratchQuat, clampedDelta * 3);
       }
 
       // Run behavior
       switch (npc.behavior) {
         case 'idle':
-          this.tickIdle(npc, delta);
+          this.tickIdle(npc, clampedDelta);
           break;
         case 'patrol':
-          this.tickPatrol(npc, delta);
+          this.tickPatrol(npc, clampedDelta, dist);
           break;
         case 'wander':
-          this.tickWander(npc, delta);
+          this.tickWander(npc, clampedDelta, dist);
           break;
         case 'sit':
-          this.tickSit(npc, delta);
+          this.tickSit(npc, clampedDelta);
           break;
       }
+
+      // Universal bounds clamp: Keep NPCs safely inside the terrain boundaries [-78m, +78m]
+      npc.group.position.x = THREE.MathUtils.clamp(npc.group.position.x, -78, 78);
+      npc.group.position.z = THREE.MathUtils.clamp(npc.group.position.z, -78, 78);
     }
   }
 
@@ -477,47 +483,86 @@ export class NPCSystem {
     }
   }
 
-  private tickPatrol(npc: NPCInstance, delta: number): void {
+  private tickPatrol(npc: NPCInstance, delta: number, distToPlayer: number): void {
     const path = npc.character.patrolPath;
     if (!path || path.length < 2) {
       this.tickIdle(npc, delta);
       return;
     }
-    const target = new THREE.Vector3(...path[npc.patrolIndex]);
+    const safeIndex = ((npc.patrolIndex % path.length) + path.length) % path.length;
+    const waypoint = path[safeIndex];
+    if (!waypoint || waypoint.length < 2) {
+      this.tickIdle(npc, delta);
+      return;
+    }
+
+    const targetX = THREE.MathUtils.clamp(waypoint[0], -75, 75);
+    const targetZ = THREE.MathUtils.clamp(waypoint[2] ?? waypoint[1], -75, 75);
     const pos = npc.group.position;
-    const dir = target.clone().sub(pos);
-    dir.y = 0;
-    const distToTarget = dir.length();
-    if (distToTarget < 0.5) {
-      npc.patrolIndex = (npc.patrolIndex + 1) % path.length;
+    const dx = targetX - pos.x;
+    const dz = targetZ - pos.z;
+    const distToTarget = Math.sqrt(dx * dx + dz * dz);
+
+    const stepSpeed = 1.5; // patrol speed 1.5 m/s
+    const maxStep = stepSpeed * delta;
+
+    if (distToTarget <= 0.5 || distToTarget <= maxStep) {
+      pos.x = targetX;
+      pos.z = targetZ;
+      npc.patrolIndex = (safeIndex + 1) % path.length;
       this.transitionClip(npc, 'Idle');
     } else {
       this.transitionClip(npc, 'Walk');
-      dir.normalize().multiplyScalar(1.5 * delta); // patrol speed 1.5 m/s
-      pos.add(dir);
+      if (distToPlayer >= 10 && distToTarget > 0.1) {
+        this._scratchLook.set(targetX, pos.y, targetZ);
+        this._dummyObj.position.copy(pos);
+        this._dummyObj.lookAt(this._scratchLook);
+        this._scratchQuat.copy(this._dummyObj.quaternion);
+        npc.group.quaternion.slerp(this._scratchQuat, delta * 6);
+      }
+      const step = Math.min(maxStep, distToTarget);
+      pos.x += (dx / distToTarget) * step;
+      pos.z += (dz / distToTarget) * step;
     }
   }
 
-  private tickWander(npc: NPCInstance, delta: number): void {
+  private tickWander(npc: NPCInstance, delta: number, distToPlayer: number): void {
     npc.wanderTimer -= delta;
     if (!npc.wanderTarget || npc.wanderTimer <= 0) {
-      // Pick a new random target within 5m of spawn
-      const spawn = new THREE.Vector3(...npc.character.position);
+      // Pick a new random target within 5m of spawn, strictly bounded within terrain [-75m, +75m]
+      const spawnX = THREE.MathUtils.clamp(npc.character.position?.[0] ?? 0, -70, 70);
+      const spawnZ = THREE.MathUtils.clamp(npc.character.position?.[2] ?? 0, -70, 70);
+      const spawnY = npc.character.position?.[1] ?? 0;
       const angle = Math.random() * Math.PI * 2;
       const radius = Math.random() * 5;
       npc.wanderTarget = new THREE.Vector3(
-        spawn.x + Math.cos(angle) * radius,
-        spawn.y,
-        spawn.z + Math.sin(angle) * radius
+        THREE.MathUtils.clamp(spawnX + Math.cos(angle) * radius, -75, 75),
+        spawnY,
+        THREE.MathUtils.clamp(spawnZ + Math.sin(angle) * radius, -75, 75)
       );
       npc.wanderTimer = 3 + Math.random() * 4; // pause 3-7 seconds between wanders
     }
-    const dir = npc.wanderTarget.clone().sub(npc.group.position);
-    dir.y = 0;
-    if (dir.length() > 0.5) {
+
+    const pos = npc.group.position;
+    const dx = npc.wanderTarget.x - pos.x;
+    const dz = npc.wanderTarget.z - pos.z;
+    const dist = Math.sqrt(dx * dx + dz * dz);
+
+    const wanderSpeed = 1.0; // wander speed 1.0 m/s
+    const maxStep = wanderSpeed * delta;
+
+    if (dist > 0.5 && dist > maxStep) {
       this.transitionClip(npc, 'Walk');
-      dir.normalize().multiplyScalar(1.0 * delta); // wander speed 1.0 m/s
-      npc.group.position.add(dir);
+      if (distToPlayer >= 10 && dist > 0.1) {
+        this._scratchLook.set(npc.wanderTarget.x, pos.y, npc.wanderTarget.z);
+        this._dummyObj.position.copy(pos);
+        this._dummyObj.lookAt(this._scratchLook);
+        this._scratchQuat.copy(this._dummyObj.quaternion);
+        npc.group.quaternion.slerp(this._scratchQuat, delta * 6);
+      }
+      const step = Math.min(maxStep, dist);
+      pos.x += (dx / dist) * step;
+      pos.z += (dz / dist) * step;
     } else {
       this.transitionClip(npc, 'Idle');
     }

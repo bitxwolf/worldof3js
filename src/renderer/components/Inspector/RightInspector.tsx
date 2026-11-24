@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useUIStore } from '../../store/uiStore';
 import { useNPCStore } from '../../store/npcStore';
 import { useWorldStore } from '../../store/worldStore';
+import { AudioManager } from '../../engine/AudioManager';
 
 export const RightInspector = () => {
   const {
@@ -50,34 +51,45 @@ export const RightInspector = () => {
       if (window.electronAPI?.npcReply) {
         // Subscribe to streaming chunks BEFORE invoking npcReply
         let accumulatedText = '';
-        
-        const unsubChunk = window.electronAPI.onStreamChunk((chunk: string) => {
+        let unsubChunk: (() => void) | undefined;
+        let unsubEnd: (() => void) | undefined;
+        let unsubError: (() => void) | undefined;
+
+        const cleanup = () => {
+          unsubChunk?.();
+          unsubEnd?.();
+          unsubError?.();
+        };
+
+        unsubChunk = window.electronAPI.onStreamChunk?.((chunk: string) => {
           accumulatedText += chunk;
           // Update a streaming state for live display
           setStreamingText(accumulatedText);
         });
 
-        const unsubEnd = window.electronAPI.onStreamEnd(() => {
+        unsubEnd = window.electronAPI.onStreamEnd?.(() => {
           if (accumulatedText.trim()) {
             addDialogueMessage(npcId, { sender: 'npc', text: accumulatedText.trim() });
+            AudioManager.getInstance().playDialogue();
           }
           setStreamingText('');
           setIsNpcThinking(false);
           addIpcLog(`[NPC:RESPONSE] Received ${accumulatedText.length} chars from agent stream.`, 'success');
-          unsubChunk();
-          unsubEnd();
+          cleanup();
         });
 
-        const unsubError = window.electronAPI.onStreamError?.((msg: string) => {
+        unsubError = window.electronAPI.onStreamError?.((msg: string) => {
           console.warn('[NPC:STREAM_ERROR]', msg);
+          const fallback = 'The character pauses thoughtfully, looking into the distance.';
+          addDialogueMessage(npcId, { sender: 'npc', text: fallback });
+          AudioManager.getInstance().playDialogue();
           setIsNpcThinking(false);
           setStreamingText('');
           addIpcLog(`[NPC:ERROR] Stream error: ${msg}`, 'error');
-          unsubChunk();
-          unsubError?.();
+          cleanup();
         });
 
-        await window.electronAPI.npcReply({
+        const res = (await window.electronAPI.npcReply({
           npcId,
           playerMessage: text,
           character: activeNPC ? {
@@ -93,12 +105,22 @@ export const RightInspector = () => {
             role: m.sender === 'player' ? ('user' as const) : ('assistant' as const),
             content: m.text,
           })),
-        });
+        })) as { success?: boolean; error?: { message?: string } } | undefined;
+
+        if (res && !res.success) {
+          const fallback = res.error?.message || 'The character pauses thoughtfully, looking into the distance.';
+          addDialogueMessage(npcId, { sender: 'npc', text: fallback });
+          AudioManager.getInstance().playDialogue();
+          setIsNpcThinking(false);
+          setStreamingText('');
+          cleanup();
+        }
         return;
       }
     } catch (e: unknown) {
       console.warn('Fallback simulated NPC chat', e);
       setStreamingText('');
+      setIsNpcThinking(false);
     }
 
     // Simulated conversational reply fallback
@@ -111,6 +133,7 @@ export const RightInspector = () => {
       ];
       const reply = simulatedReplies[Math.floor(Math.random() * simulatedReplies.length)];
       addDialogueMessage(npcId, { sender: 'npc', text: reply });
+      AudioManager.getInstance().playDialogue();
       setIsNpcThinking(false);
       addIpcLog(`[NPC:RESPONSE] Received 142 tokens from agent stream.`, 'success');
     }, 600);

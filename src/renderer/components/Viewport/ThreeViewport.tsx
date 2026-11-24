@@ -24,7 +24,8 @@ import { sharedClipsFor } from '../../engine/NPCSystem';
 import { useInventoryStore } from '../../store/inventoryStore';
 import { EventSystem } from '../../engine/EventSystem';
 import { WeatherSystem, type WeatherType } from '../../engine/WeatherSystem';
-import type { SceneGraph } from '../../../shared/schema/sceneGraph.schema';
+import { AudioManager } from '../../engine/AudioManager';
+import { SavedWorldSchema, SceneGraphSchema, type SceneGraph } from '../../../shared/schema/sceneGraph.schema';
 import { transport } from '../../../shared/transport';
 
 // Simple deterministic pseudo-random function
@@ -110,6 +111,7 @@ export const ThreeViewport = () => {
     isCircleSelectActiveRef.current = isCircleSelectActive;
   }, [isCircleSelectActive]);
   const circleSelectToolRef = useRef<CircleSelectTool | null>(null);
+  const lastPointerPosRef = useRef<{ clientX: number; clientY: number } | null>(null);
   const activeSelection = useOrchestratorStore((s) => s.activeSelection);
   const prevSelectionRef = useRef(activeSelection);
 
@@ -133,6 +135,7 @@ export const ThreeViewport = () => {
   const playerVelocityRef = useRef(new THREE.Vector3());
   const playerDirectionRef = useRef(new THREE.Vector3());
   const scratchVec3Ref = useRef(new THREE.Vector3());
+  const scratchVec3RightRef = useRef(new THREE.Vector3());
   const nearbyNPCNameRef = useRef<string | null>(null);
   const [nearbyNPCName, setNearbyNPCName] = useState<string | null>(null);
   const dialogueOpen = useNPCStore((s) => s.dialogueOpen);
@@ -355,37 +358,73 @@ export const ThreeViewport = () => {
     return npcMesh;
   };
 
-  const disposeHierarchy = (obj: THREE.Object3D) => {
-    if ((obj as any).userData?.mixer) {
-      const mixer = (obj as any).userData.mixer as THREE.AnimationMixer;
-      mixer.stopAllAction();
-      const idx = animationMixersRef.current.indexOf(mixer);
-      if (idx !== -1) animationMixersRef.current.splice(idx, 1);
-    }
-    if ((obj as THREE.Mesh).geometry) {
-      (obj as THREE.Mesh).geometry.dispose();
-    }
-    if ((obj as THREE.Mesh).material) {
-      const mats = Array.isArray((obj as THREE.Mesh).material)
-        ? ((obj as THREE.Mesh).material as THREE.Material[])
-        : [(obj as THREE.Mesh).material as THREE.Material];
-      mats.forEach((m) => {
-        if (!m) return;
-        m.dispose();
-        const textureKeys = ['map', 'normalMap', 'roughnessMap', 'metalnessMap', 'aoMap', 'emissiveMap', 'alphaMap'];
-        for (const key of textureKeys) {
-          const tex = (m as unknown as Record<string, unknown>)[key];
-          if (tex && typeof tex === 'object' && 'isTexture' in tex && (tex as { isTexture: boolean }).isTexture) {
-            (tex as THREE.Texture).dispose();
+  const disposeHierarchy = (obj: THREE.Object3D, checkInUse = true) => {
+    let activeGeometries: Set<THREE.BufferGeometry> | null = null;
+    let activeMaterials: Set<THREE.Material> | null = null;
+
+    if (checkInUse && sceneRef.current) {
+      activeGeometries = new Set();
+      activeMaterials = new Set();
+      sceneRef.current.traverse((other) => {
+        let isDescendant = false;
+        let p: THREE.Object3D | null = other;
+        while (p) {
+          if (p === obj) {
+            isDescendant = true;
+            break;
           }
+          p = p.parent;
+        }
+        if (!isDescendant && other instanceof THREE.Mesh) {
+          if (other.geometry) activeGeometries!.add(other.geometry);
+          const mats = Array.isArray(other.material)
+            ? (other.material as THREE.Material[])
+            : [(other.material as THREE.Material)];
+          mats.forEach((m) => {
+            if (m) activeMaterials!.add(m);
+          });
         }
       });
     }
-    while (obj.children.length > 0) {
-      const child = obj.children[0];
-      obj.remove(child);
-      disposeHierarchy(child);
-    }
+
+    const disposeNode = (node: THREE.Object3D) => {
+      if ((node as any).userData?.mixer) {
+        const mixer = (node as any).userData.mixer as THREE.AnimationMixer;
+        mixer.stopAllAction();
+        const idx = animationMixersRef.current.indexOf(mixer);
+        if (idx !== -1) animationMixersRef.current.splice(idx, 1);
+      }
+      if (node instanceof THREE.Mesh) {
+        if (node.geometry && (!activeGeometries || !activeGeometries.has(node.geometry))) {
+          node.geometry.dispose();
+        }
+        if (node.material) {
+          const mats = Array.isArray(node.material)
+            ? (node.material as THREE.Material[])
+            : [(node.material as THREE.Material)];
+          mats.forEach((m) => {
+            if (!m) return;
+            if (!activeMaterials || !activeMaterials.has(m)) {
+              m.dispose();
+              const textureKeys = ['map', 'normalMap', 'roughnessMap', 'metalnessMap', 'aoMap', 'emissiveMap', 'alphaMap'];
+              for (const key of textureKeys) {
+                const tex = (m as unknown as Record<string, unknown>)[key];
+                if (tex && typeof tex === 'object' && 'isTexture' in tex && (tex as { isTexture: boolean }).isTexture) {
+                  (tex as THREE.Texture).dispose();
+                }
+              }
+            }
+          });
+        }
+      }
+      while (node.children.length > 0) {
+        const child = node.children[0];
+        node.remove(child);
+        disposeNode(child);
+      }
+    };
+
+    disposeNode(obj);
   };
 
   const createObjectFallbackMesh = (obj: {
@@ -478,14 +517,23 @@ export const ThreeViewport = () => {
 
     if (isCircleSelectActive) {
       if (controlsRef.current) controlsRef.current.enabled = false;
-      const tool = new CircleSelectTool(
-        sceneRef.current,
-        cameraRef.current,
-        canvasRef.current,
-        () => terrainMeshRef.current,
-        activeBiome
-      );
-      circleSelectToolRef.current = tool;
+      if (!circleSelectToolRef.current) {
+        const tool = new CircleSelectTool(
+          sceneRef.current,
+          cameraRef.current,
+          canvasRef.current,
+          () => terrainMeshRef.current,
+          activeBiome,
+          () => {
+            setIsCircleSelectActive(false);
+            useOrchestratorStore.getState().clearSelection();
+          }
+        );
+        if (lastPointerPosRef.current) {
+          tool.updateInitialPosition(lastPointerPosRef.current);
+        }
+        circleSelectToolRef.current = tool;
+      }
     } else {
       if (circleSelectToolRef.current) {
         circleSelectToolRef.current.dispose();
@@ -501,11 +549,15 @@ export const ThreeViewport = () => {
         circleSelectToolRef.current.dispose();
         circleSelectToolRef.current = null;
       }
-      if (controlsRef.current && cameraMode !== 'walk') {
-        controlsRef.current.enabled = true;
-      }
     };
-  }, [isCircleSelectActive, activeBiome, cameraMode]);
+  }, [isCircleSelectActive, cameraMode]);
+
+  // Synchronize activeBiome to circle select reticle without recreating tool
+  useEffect(() => {
+    if (circleSelectToolRef.current) {
+      circleSelectToolRef.current.setActiveBiome(activeBiome);
+    }
+  }, [activeBiome]);
 
   // Traverse Three.js scene and update Hierarchy tab (Point 75)
   const syncSceneHierarchy = useCallback((scene: THREE.Scene) => {
@@ -1022,7 +1074,11 @@ export const ThreeViewport = () => {
         addIpcLog(`[SELECTION] Focused node '${target.name}' (UUID: ${target.uuid.slice(0, 8)})`, 'selection');
       }
     };
+    const onPointerMoveTrack = (e: MouseEvent) => {
+      lastPointerPosRef.current = { clientX: e.clientX, clientY: e.clientY };
+    };
     canvas.addEventListener('pointerdown', onPointerDown);
+    canvas.addEventListener('pointermove', onPointerMoveTrack);
 
     // 11. Render Animation Loop
     let animId = 0;
@@ -1033,7 +1089,8 @@ export const ThreeViewport = () => {
     const animate = () => {
       animId = requestAnimationFrame(animate);
 
-      const delta = clock.getDelta();
+      const rawDelta = clock.getDelta();
+      const delta = Math.max(0, Math.min(Number.isFinite(rawDelta) ? rawDelta : 0, 0.1));
       const time = clock.getElapsedTime();
 
       // Tick Weather System particles and storm lightning
@@ -1077,8 +1134,10 @@ export const ThreeViewport = () => {
         const dir = playerDirectionRef.current;
         const keys = moveKeysRef.current;
 
-        vel.x -= vel.x * 10.0 * delta;
-        vel.z -= vel.z * 10.0 * delta;
+        // Exponential decay damping (unconditionally stable for any delta)
+        const damping = Math.exp(-10.0 * delta);
+        vel.x *= damping;
+        vel.z *= damping;
 
         dir.z = Number(keys.forward) - Number(keys.backward);
         dir.x = Number(keys.right) - Number(keys.left);
@@ -1093,9 +1152,11 @@ export const ThreeViewport = () => {
         camera.getWorldDirection(forward);
         forward.y = 0;
         forward.normalize();
-        const right = new THREE.Vector3().crossVectors(forward, camera.up).normalize();
+        const right = scratchVec3RightRef.current.crossVectors(forward, camera.up).normalize();
         camera.position.addScaledVector(forward, -vel.z * delta);
         camera.position.addScaledVector(right, -vel.x * delta);
+        camera.position.x = THREE.MathUtils.clamp(camera.position.x, -78, 78);
+        camera.position.z = THREE.MathUtils.clamp(camera.position.z, -78, 78);
 
         const currentSeed = useUIStore.getState().seed;
         const elev = useUIStore.getState().tuningParams.elevation;
@@ -1324,11 +1385,18 @@ export const ThreeViewport = () => {
       cancelAnimationFrame(animId);
       resizeObserver.disconnect();
       canvas.removeEventListener('pointerdown', onPointerDown);
+      canvas.removeEventListener('pointermove', onPointerMoveTrack);
       canvas.removeEventListener('webglcontextlost', handleContextLost);
       canvas.removeEventListener('webglcontextrestored', handleContextRestored);
       controls.dispose();
       weatherSystemRef.current?.dispose();
       weatherSystemRef.current = null;
+      for (const mixer of animationMixersRef.current) {
+        mixer.stopAllAction();
+      }
+      animationMixersRef.current = [];
+      getDefaultAssetRegistry().disposeAll();
+      AudioManager.getInstance().dispose();
       renderer.dispose();
       disposeHierarchy(scene);
       streamCleanupRef.current?.();
@@ -1347,28 +1415,15 @@ export const ThreeViewport = () => {
       const before = renderer.info.memory;
       const beforeGeo = before.geometries;
       const beforeTex = before.textures;
-      // Dispose all geometries and materials in the scene
-      scene.traverse((obj) => {
-        if (obj instanceof THREE.Mesh) {
-          obj.geometry?.dispose();
-          const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
-          for (const m of mats) {
-            if (m instanceof THREE.Material) {
-              // Dispose any textures attached to the material
-              for (const key of Object.keys(m)) {
-                const val = (m as unknown as Record<string, unknown>)[key];
-                if (val && typeof val === 'object' && 'isTexture' in val) {
-                  (val as THREE.Texture).dispose();
-                }
-              }
-              m.dispose();
-            }
-          }
-        }
-      });
+
+      // Safely sweep unreferenced cached models and textures from AssetRegistry
+      getDefaultAssetRegistry().sweepUnreferenced(scene);
+
+      // Free WebGL render lists and reset render info without destroying live scene meshes
+      renderer.renderLists?.dispose();
       renderer.info.reset();
       const after = renderer.info.memory;
-      console.info(`[VRAM GC] Disposed geometries, materials, and textures. Before: ${beforeGeo}G/${beforeTex}T → After: ${after.geometries}G/${after.textures}T`);
+      console.info(`[VRAM GC] Swept unreferenced GPU assets. Before: ${beforeGeo}G/${beforeTex}T → After: ${after.geometries}G/${after.textures}T`);
     };
     window.addEventListener('engine:gc-request', handleGC);
     return () => window.removeEventListener('engine:gc-request', handleGC);
@@ -1562,6 +1617,7 @@ export const ThreeViewport = () => {
 
   // Sync if sceneGraph is updated and build world
   useEffect(() => {
+    let isCurrent = true;
     // If a live patch is being applied, skip full scene rebuild
     if (isApplyingPatchRef.current) {
       isApplyingPatchRef.current = false;
@@ -1651,6 +1707,7 @@ export const ThreeViewport = () => {
             void getDefaultAssetRegistry()
               .loadModel(assetTarget)
               .then((model) => {
+                if (!isCurrent) return;
                 if (obj.position && obj.position.length >= 3) {
                   model.position.set(obj.position[0], obj.position[1], obj.position[2]);
                 }
@@ -1672,6 +1729,7 @@ export const ThreeViewport = () => {
                 if (sceneRef.current) syncSceneHierarchy(sceneRef.current);
               })
               .catch((err) => {
+                if (!isCurrent) return;
                 console.warn(`[ThreeViewport] Failed to load model for ${obj.id}:`, err);
                 const fallbackMesh = createObjectFallbackMesh(obj);
                 group.add(fallbackMesh);
@@ -1698,6 +1756,7 @@ export const ThreeViewport = () => {
             void getDefaultAssetRegistry()
               .loadModel(modelTarget)
               .then(async (characterModel) => {
+                if (!isCurrent) return;
                 const elev = useUIStore.getState().tuningParams.elevation;
                 const currentSeed = useUIStore.getState().seed;
                 const targetY = char.position[1] !== undefined && char.position[1] !== 0
@@ -1731,10 +1790,20 @@ export const ThreeViewport = () => {
                   // Non-fatal animation error
                 }
 
+                if (!isCurrent) {
+                  if (characterModel.userData.mixer) {
+                    characterModel.userData.mixer.stopAllAction();
+                    const idx = animationMixersRef.current.indexOf(characterModel.userData.mixer);
+                    if (idx !== -1) animationMixersRef.current.splice(idx, 1);
+                  }
+                  return;
+                }
+
                 group.add(characterModel);
                 if (sceneRef.current) syncSceneHierarchy(sceneRef.current);
               })
               .catch(() => {
+                if (!isCurrent) return;
                 const npcMesh = buildNpcCharacter();
                 npcMesh.name = `NPC_${char.name.replace(/\s+/g, '_')}`;
                 npcMesh.userData = { ...npcMesh.userData, id: char.id, name: char.name, type: 'npc', isNPC: true };
@@ -1750,29 +1819,34 @@ export const ThreeViewport = () => {
             (char.assetUrl && char.assetUrl.startsWith('data:image') ? char.assetUrl : null) ||
             (charImages[i] || charImages[0])?.base64;
 
+          const posX = Array.isArray(char.position) && Number.isFinite(char.position[0]) ? char.position[0] : 0;
+          const posZ = Array.isArray(char.position) && Number.isFinite(char.position[2]) ? char.position[2] : 0;
+
           if (charPortrait) {
             imageToGeometry(charPortrait, {
               id: char.id,
               name: char.name,
             })
               .then((avatar) => {
-                avatar.position.set(char.position[0], 0, char.position[2]);
+                if (!isCurrent) return;
+                avatar.position.set(posX, 0, posZ);
                 group.add(avatar);
                 if (sceneRef.current) syncSceneHierarchy(sceneRef.current);
               })
               .catch((err) => {
+                if (!isCurrent) return;
                 console.warn(`[ThreeViewport] Failed to generate avatar for ${char.name}:`, err);
                 const npcMesh = buildNpcCharacter();
                 npcMesh.name = `NPC_${char.name.replace(/\s+/g, '_')}`;
                 npcMesh.userData = { ...npcMesh.userData, id: char.id, name: char.name, type: 'npc', isNPC: true };
-                npcMesh.position.set(char.position[0], 0, char.position[2]);
+                npcMesh.position.set(posX, 0, posZ);
                 group.add(npcMesh);
               });
           } else {
             const npcMesh = buildNpcCharacter();
             npcMesh.name = `NPC_${char.name.replace(/\s+/g, '_')}`;
             npcMesh.userData = { ...npcMesh.userData, id: char.id, name: char.name, type: 'npc', isNPC: true };
-            npcMesh.position.set(char.position[0], 0, char.position[2]);
+            npcMesh.position.set(posX, 0, posZ);
             group.add(npcMesh);
           }
         }
@@ -1782,6 +1856,10 @@ export const ThreeViewport = () => {
       if (hudNpcEl) hudNpcEl.textContent = `${sceneGraph.characters?.length ?? 0} characters`;
       if (sceneRef.current) syncSceneHierarchy(sceneRef.current);
     }
+
+    return () => {
+      isCurrent = false;
+    };
   }, [sceneGraph, generatedCode, syncSceneHierarchy, uploadedImages]);
 
   // Spawn 3D extruded avatar whenever a character portrait is uploaded in ImageUploader
@@ -2115,6 +2193,29 @@ export const ThreeViewport = () => {
           selectionBoxRef.current.visible = false;
         }
       }
+
+      // Synchronize modified coordinates into worldStore.sceneGraph
+      const currentScene = useWorldStore.getState().sceneGraph;
+      if (currentScene) {
+        if (currentScene.objects) {
+          const matchObj = currentScene.objects.find(
+            (o) => o.id === selectedNode.id || o.name === selectedNode.name
+          );
+          if (matchObj) {
+            matchObj.position = [selectedNode.position[0], selectedNode.position[1], selectedNode.position[2]];
+            if (selectedNode.rotation) matchObj.rotation = [selectedNode.rotation[0], selectedNode.rotation[1], selectedNode.rotation[2]];
+            if (selectedNode.scale) matchObj.scale = [selectedNode.scale[0], selectedNode.scale[1], selectedNode.scale[2]];
+          }
+        }
+        if (currentScene.characters) {
+          const matchChar = currentScene.characters.find(
+            (c) => c.id === selectedNode.id || c.name === selectedNode.name
+          );
+          if (matchChar) {
+            matchChar.position = [selectedNode.position[0], selectedNode.position[1], selectedNode.position[2]];
+          }
+        }
+      }
     }
   }, [selectedNode]);
 
@@ -2166,12 +2267,24 @@ export const ThreeViewport = () => {
     const handleExport = async () => {
       const scene = sceneRef.current;
       if (!scene) return;
+      let restoreHelpers: (() => void) | null = null;
       try {
         const { GLTFExporter } = await import('three/examples/jsm/exporters/GLTFExporter.js');
         const exporter = new GLTFExporter();
+
+        const prevBoxVis = selectionBoxRef.current ? selectionBoxRef.current.visible : false;
+        if (selectionBoxRef.current) selectionBoxRef.current.visible = false;
+        if (circleSelectToolRef.current) circleSelectToolRef.current.setVisible(false);
+
+        restoreHelpers = () => {
+          if (selectionBoxRef.current) selectionBoxRef.current.visible = prevBoxVis;
+          if (circleSelectToolRef.current) circleSelectToolRef.current.setVisible(true);
+        };
+
         exporter.parse(
           scene,
           (gltf) => {
+            restoreHelpers?.();
             const output = JSON.stringify(gltf, null, 2);
             const blob = new Blob([output], { type: 'application/json' });
             const link = document.createElement('a');
@@ -2184,12 +2297,14 @@ export const ThreeViewport = () => {
             useUIStore.getState().showNotification('World exported as GLTF!', 3000, 'success');
           },
           (err) => {
+            restoreHelpers?.();
             console.error('[Export] GLTF export failed:', err);
             useUIStore.getState().showNotification('GLTF export failed', 3000, 'error');
           },
           { binary: false }
         );
       } catch (err) {
+        restoreHelpers?.();
         console.error('[Export] GLTFExporter not available:', err);
         useUIStore.getState().showNotification('GLTF export failed', 3000, 'error');
       }
@@ -2217,21 +2332,24 @@ export const ThreeViewport = () => {
 
       const isTyping = isInputTarget(e.target) || isInputTarget(document.activeElement);
       const uiStore = useUIStore.getState();
+      const isDialogueOpen = useNPCStore.getState().dialogueOpen;
       const isAnyModalOpen =
         uiStore.isSettingsOpen ||
         uiStore.isLibraryOpen ||
         uiStore.isPolyforkOpen ||
         uiStore.isDocUploaderOpen ||
-        uiStore.isImageUploaderOpen;
+        uiStore.isImageUploaderOpen ||
+        isDialogueOpen;
 
       if (e.code === 'Escape' || e.key === 'Escape') {
         if (isTyping && e.target instanceof HTMLElement) {
           e.target.blur();
           return;
         }
-        if (dialogueOpen) {
+        if (useNPCStore.getState().dialogueOpen) {
           setDialogueOpen(false);
           setActiveNPC(null);
+          return;
         } else if (uiStore.cameraMode === 'walk') {
           setCameraMode('orbit');
         } else if (isCircleSelectActiveRef.current) {
@@ -2245,7 +2363,7 @@ export const ThreeViewport = () => {
         return;
       }
 
-      // If user is typing in any text input or if a modal is open, completely suppress viewport hotkeys
+      // If user is typing in any text input, chatting in dialogue, or if a modal is open, completely suppress viewport hotkeys
       if (isTyping || isAnyModalOpen) {
         return;
       }
@@ -2254,10 +2372,14 @@ export const ThreeViewport = () => {
       if (e.code === 'KeyC' && !hasModifiers) {
         if (uiStore.cameraMode === 'walk') {
           uiStore.setCameraMode('orbit');
+          pointerLockRef.current?.unlock();
+          try { document.exitPointerLock?.(); } catch {}
         }
         setIsCircleSelectActive((prev) => {
           const next = !prev;
-          if (!next) {
+          if (next) {
+            handleDeselect();
+          } else {
             useOrchestratorStore.getState().clearSelection();
           }
           return next;
@@ -2408,6 +2530,12 @@ export const ThreeViewport = () => {
           const character = useWorldStore.getState().sceneGraph?.characters?.find(
             (c) => c.id === npcData.id || c.name === npcData.name
           );
+          if (isCircleSelectActiveRef.current) {
+            setIsCircleSelectActive(false);
+            useOrchestratorStore.getState().clearSelection();
+          }
+          AudioManager.getInstance().playInteract();
+
           if (character) {
             setActiveNPC(character);
             setDialogueOpen(true);
@@ -2509,6 +2637,8 @@ export const ThreeViewport = () => {
   const handleResetCamera = () => {
     if (useUIStore.getState().cameraMode === 'walk') {
       useUIStore.getState().setCameraMode('orbit');
+      pointerLockRef.current?.unlock();
+      try { document.exitPointerLock?.(); } catch {}
     }
     if (cameraRef.current && controlsRef.current) {
       cameraRef.current.position.set(28, 22, 34);
@@ -2535,9 +2665,85 @@ export const ThreeViewport = () => {
       ref={containerRef}
       id="viewportContainer"
       className="flex-1 flex flex-col relative overflow-hidden bg-black cursor-grab active:cursor-grabbing"
+      onDragOver={(e) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'copy';
+      }}
+      onDrop={async (e) => {
+        e.preventDefault();
+        const files = e.dataTransfer.files;
+        if (!files || files.length === 0) return;
+        const file = files[0];
+        const nameLower = file.name.toLowerCase();
+
+        const notify = useUIStore.getState().showNotification;
+        if (nameLower.endsWith('.json')) {
+          try {
+            const text = await file.text();
+            let parsed: unknown;
+            try {
+              parsed = JSON.parse(text);
+            } catch (syntaxErr) {
+              const msg = syntaxErr instanceof Error ? syntaxErr.message : String(syntaxErr);
+              notify(`Malformed or truncated JSON: ${msg}`, 4500, 'error');
+              return;
+            }
+            const savedRes = SavedWorldSchema.safeParse(parsed);
+            if (savedRes.success) {
+              useWorldStore.getState().setCustomWorldActive(true);
+              useWorldStore.getState().setSceneGraph(savedRes.data.sceneGraph);
+              if (savedRes.data.flags) {
+                Object.entries(savedRes.data.flags).forEach(([k, v]) => useWorldStore.getState().setFlag(k, v));
+              }
+              notify(`Imported world: ${savedRes.data.name || file.name}`, 3500, 'success');
+              return;
+            }
+            const sgRes = SceneGraphSchema.safeParse(parsed);
+            if (sgRes.success) {
+              useWorldStore.getState().setCustomWorldActive(true);
+              useWorldStore.getState().setSceneGraph(sgRes.data);
+              notify(`Imported scene: ${sgRes.data.world?.name || file.name}`, 3500, 'success');
+              return;
+            }
+            notify('Incompatible world file format', 4000, 'warning');
+          } catch (err) {
+            notify('Failed to process dropped JSON file', 4000, 'error');
+          }
+        } else if (file.type.startsWith('image/')) {
+          try {
+            const reader = new FileReader();
+            reader.onload = () => {
+              const res = reader.result as string;
+              const base64 = res.split(',')[1] || res;
+              useWorldStore.getState().setUploadedImages([
+                ...(useWorldStore.getState().uploadedImages || []),
+                { base64, mimeType: file.type || 'image/png', tag: 'character' }
+              ]);
+              notify(`Added reference image: ${file.name}`, 3000, 'success');
+            };
+            reader.readAsDataURL(file);
+          } catch {
+            notify('Failed to read dropped image file', 4000, 'error');
+          }
+        } else if (nameLower.endsWith('.txt') || nameLower.endsWith('.md')) {
+          try {
+            const text = await file.text();
+            useWorldStore.getState().setUploadedDocument(text);
+            useWorldStore.getState().setFlag('hasDocument', true);
+            notify(`Story document attached: ${file.name}`, 3000, 'success');
+          } catch {
+            notify('Failed to read dropped story document', 4000, 'error');
+          }
+        }
+      }}
     >
       {/* 3D Canvas */}
-      <canvas ref={canvasRef} id="threeCanvas" className="w-full h-full block" />
+      <canvas
+        ref={canvasRef}
+        id="threeCanvas"
+        onContextMenu={(e) => e.preventDefault()}
+        className="w-full h-full block"
+      />
 
       {/* Generation Loading Overlay */}
       <GenerationOverlay />
@@ -2625,19 +2831,32 @@ export const ThreeViewport = () => {
                   backstory: (activeNPC as any).backstory || activeNPC.description,
                   dialogueStyle: (activeNPC as any).dialogueStyle || (activeNPC as any).dialogueSeed,
                 },
-              } as any) as Promise<any>).then((res: { success: boolean; data?: string }) => {
+              } as any) as Promise<any>).then((res: { success: boolean; data?: string; error?: { message?: string } }) => {
                 if (res?.success && res?.data && !accumulatedText.trim()) {
                   setStreamingText(res.data);
                   useNPCStore.getState().addDialogueMessage(activeNPC.id, { sender: 'npc', text: res.data });
+                  AudioManager.getInstance().playDialogue();
                   setIsStreaming(false);
                   cleanup();
                 } else if (!window.electronAPI.onStreamEnd && accumulatedText.trim()) {
                   useNPCStore.getState().addDialogueMessage(activeNPC.id, { sender: 'npc', text: accumulatedText.trim() });
+                  AudioManager.getInstance().playDialogue();
+                  setStreamingText('');
+                  setIsStreaming(false);
+                  cleanup();
+                } else if (!res?.success) {
+                  const fallback = res?.error?.message || 'The character pauses thoughtfully, looking into the distance.';
+                  useNPCStore.getState().addDialogueMessage(activeNPC.id, { sender: 'npc', text: fallback });
+                  AudioManager.getInstance().playDialogue();
                   setStreamingText('');
                   setIsStreaming(false);
                   cleanup();
                 }
               }).catch(() => {
+                const fallback = 'The character pauses thoughtfully, looking into the distance.';
+                useNPCStore.getState().addDialogueMessage(activeNPC.id, { sender: 'npc', text: fallback });
+                AudioManager.getInstance().playDialogue();
+                setStreamingText('');
                 setIsStreaming(false);
                 cleanup();
               });
@@ -2647,6 +2866,7 @@ export const ThreeViewport = () => {
                 const reply = 'The winds whisper of ancient tales...';
                 setStreamingText(reply);
                 useNPCStore.getState().addDialogueMessage(activeNPC.id, { sender: 'npc', text: reply });
+                AudioManager.getInstance().playDialogue();
                 setIsStreaming(false);
               }, 800);
             }
@@ -2691,12 +2911,20 @@ export const ThreeViewport = () => {
         <button
           type="button"
           onClick={() => {
+            if (useNPCStore.getState().dialogueOpen) {
+              setDialogueOpen(false);
+              setActiveNPC(null);
+            }
             if (useUIStore.getState().cameraMode === 'walk') {
               useUIStore.getState().setCameraMode('orbit');
+              pointerLockRef.current?.unlock();
+              try { document.exitPointerLock?.(); } catch {}
             }
             setIsCircleSelectActive((prev) => {
               const next = !prev;
-              if (!next) {
+              if (next) {
+                handleDeselect();
+              } else {
                 useOrchestratorStore.getState().clearSelection();
               }
               return next;

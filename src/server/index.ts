@@ -19,9 +19,23 @@ const app = express();
 const PORT = process.env.PORT ?? 3422;
 
 app.use(cors({
-  origin: (_origin, callback) => {
+  origin: (origin, callback) => {
     // Allow same-origin requests (origin is undefined) and localhost origins only
-    callback(null, true);
+    if (!origin) return callback(null, true);
+    try {
+      const parsed = new URL(origin);
+      if (
+        parsed.hostname === 'localhost' ||
+        parsed.hostname === '127.0.0.1' ||
+        parsed.hostname === '::1' ||
+        parsed.hostname === '[::1]'
+      ) {
+        return callback(null, true);
+      }
+      return callback(new Error('Cross-origin requests blocked by CORS'));
+    } catch {
+      return callback(new Error('Invalid Origin header'));
+    }
   },
   credentials: false,
 }));
@@ -87,6 +101,18 @@ function hasPrototypePollution(obj: unknown): boolean {
   }
   return false;
 }
+
+// Router-level prototype pollution defense across all /api endpoints
+app.use('/api', (req, res, next) => {
+  if (req.body && typeof req.body === 'object' && hasPrototypePollution(req.body)) {
+    res.status(400).json({
+      success: false,
+      error: { name: 'ValidationError', message: 'Prototype pollution detected in request body' },
+    });
+    return;
+  }
+  next();
+});
 
 // App
 app.get('/api/app/get-settings', (_req, res) => {
@@ -170,16 +196,30 @@ app.post('/api/llm/npc-reply', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
+
+  let clientDisconnected = false;
+  req.on('close', () => {
+    clientDisconnected = true;
+  });
+
   try {
     await claude.npcReplyStream(req.body, (chunk: string) => {
-      res.write(`data: ${chunk}\n\n`);
+      if (!clientDisconnected && !res.writableEnded) {
+        res.write(`data: ${chunk}\n\n`);
+      }
     });
-    res.write('event: end\ndata: done\n\n');
+    if (!clientDisconnected && !res.writableEnded) {
+      res.write('event: end\ndata: done\n\n');
+    }
   } catch (err) {
     const e = err instanceof Error ? err : new Error(String(err));
-    res.write(`event: error\ndata: ${e.message}\n\n`);
+    if (!clientDisconnected && !res.writableEnded) {
+      res.write(`event: error\ndata: ${e.message}\n\n`);
+    }
   } finally {
-    res.end();
+    if (!res.writableEnded) {
+      res.end();
+    }
   }
 });
 
@@ -225,6 +265,10 @@ app.post('/api/file/autosave-world', async (_req, res) => {
 // Orchestrator & Graph
 app.post('/api/orchestrator/generate', async (req, res) => {
   try {
+    if (!req.body || typeof req.body !== 'object' || !req.body.rawPrompt) {
+      res.status(400).json({ success: false, error: { name: 'ValidationError', message: 'rawPrompt is required in request body' } });
+      return;
+    }
     const agent = new ParentAgent(StoreService, graphStore, kvStore, (_evt) => {});
     const result = await agent.generate(req.body);
     res.json({ success: true, data: result });
@@ -255,7 +299,12 @@ app.post('/api/graph/query-radius', async (req, res) => {
     const sessionId = req.body?.sessionId || 'default-session';
     const graph = new WorldGraph(graphStore);
     await graph.hydrate(sessionId);
-    const nodes = graph.queryRadius(req.body.x ?? 0, req.body.z ?? 0, req.body.radius ?? 25);
+    const qx = typeof req.body?.x === 'number' && Number.isFinite(req.body.x) ? req.body.x : 0;
+    const qz = typeof req.body?.z === 'number' && Number.isFinite(req.body.z) ? req.body.z : 0;
+    const qr = typeof req.body?.radius === 'number' && Number.isFinite(req.body.radius) && req.body.radius > 0
+      ? Math.min(req.body.radius, 500)
+      : 25;
+    const nodes = graph.queryRadius(qx, qz, qr);
     res.json({ success: true, data: { nodes } });
   } catch (err) {
     const e = err instanceof Error ? err : new Error(String(err));

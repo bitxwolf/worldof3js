@@ -178,6 +178,26 @@ export const PolyforkExplorer: React.FC = () => {
 
     return () => {
       if (animFrameIdRef.current) cancelAnimationFrame(animFrameIdRef.current);
+      if (currentModelRef.current) {
+        scene.remove(currentModelRef.current);
+        currentModelRef.current.traverse((o) => {
+          if (o instanceof THREE.Mesh) {
+            o.geometry?.dispose();
+            const mats = Array.isArray(o.material) ? o.material : [o.material];
+            mats.forEach((m) => m?.dispose());
+          }
+        });
+        currentModelRef.current = null;
+      }
+      grid.geometry.dispose();
+      (grid.material as THREE.Material).dispose();
+      ambientLight.dispose();
+      sunLight.dispose();
+      if (previewMixerRef.current) {
+        previewMixerRef.current.stopAllAction();
+        previewMixerRef.current = null;
+      }
+      previewActionsRef.current.clear();
       controls.dispose();
       renderer.dispose();
       previewSceneRef.current = null;

@@ -6,13 +6,15 @@ import type { ViewportBiomeType } from '../../../shared/agents/agentTypes';
 import type { SelectionContext } from '../../../shared/agents/agentTypes';
 import { transport } from '../../../shared/transport';
 import { IPC_CHANNELS } from '../../../shared/constants';
+import { AudioManager } from '../../engine/AudioManager';
 
 export class CircleSelectTool {
+  private static lastRadius: number = 25;
   private scene: THREE.Scene;
   private camera: THREE.Camera;
   private canvas: HTMLCanvasElement;
   private reticle: THREE.Group;
-  private radius: number = 25;
+  private radius: number = CircleSelectTool.lastRadius;
   private raycaster = new THREE.Raycaster();
   private mouse = new THREE.Vector2();
   private wheelDebounceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -20,24 +22,30 @@ export class CircleSelectTool {
   private onPointerDownBound = this.onPointerDown.bind(this);
   private onPointerMoveBound = this.onPointerMove.bind(this);
   private onPointerUpBound = this.onPointerUp.bind(this);
+  private onPointerCancelBound = this.onPointerCancel.bind(this);
   private onWheelBound = this.onWheel.bind(this);
+  private onContextMenuBound = this.onContextMenu.bind(this);
 
   private activeBiome: ViewportBiomeType = 'pine';
   private getTerrainMesh: () => THREE.Mesh | null;
+  private onDismiss?: () => void;
   private isDragging: boolean = false;
+  private isDisposed: boolean = false;
 
   constructor(
     scene: THREE.Scene,
     camera: THREE.Camera,
     canvas: HTMLCanvasElement,
     terrainMeshOrGetter: THREE.Mesh | (() => THREE.Mesh | null) | null,
-    activeBiome: ViewportBiomeType
+    activeBiome: ViewportBiomeType,
+    onDismiss?: () => void
   ) {
     this.scene = scene;
     this.camera = camera;
     this.canvas = canvas;
     this.getTerrainMesh = typeof terrainMeshOrGetter === 'function' ? terrainMeshOrGetter : () => terrainMeshOrGetter;
     this.activeBiome = activeBiome;
+    this.onDismiss = onDismiss;
 
     // Create Reticle
     this.reticle = new THREE.Group();
@@ -77,11 +85,31 @@ export class CircleSelectTool {
     this.canvas.addEventListener('pointerdown', this.onPointerDownBound);
     this.canvas.addEventListener('pointermove', this.onPointerMoveBound);
     this.canvas.addEventListener('pointerup', this.onPointerUpBound);
+    this.canvas.addEventListener('pointercancel', this.onPointerCancelBound);
     this.canvas.addEventListener('wheel', this.onWheelBound, { passive: false });
+    this.canvas.addEventListener('contextmenu', this.onContextMenuBound);
+  }
+
+  private onContextMenu(event: MouseEvent): void {
+    event.preventDefault();
+  }
+
+  public updateInitialPosition(event?: { clientX: number; clientY: number } | null): void {
+    if (!event) return;
+    this.updatePosition(event as MouseEvent);
+  }
+
+  public setActiveBiome(biome: ViewportBiomeType): void {
+    this.activeBiome = biome;
+  }
+
+  public setVisible(visible: boolean): void {
+    this.reticle.visible = visible;
   }
 
   private updateRadius(r: number) {
     this.radius = THREE.MathUtils.clamp(r, 5, 100);
+    CircleSelectTool.lastRadius = this.radius;
     this.reticle.scale.set(this.radius, this.radius, 1);
   }
 
@@ -113,7 +141,16 @@ export class CircleSelectTool {
   private onPointerDown(event: PointerEvent) {
     if (event.button === 0) {
       this.isDragging = true;
+      try {
+        this.canvas.setPointerCapture?.(event.pointerId);
+      } catch {}
       this.updatePosition(event);
+    } else if (event.button === 2) {
+      this.isDragging = false;
+      try {
+        this.canvas.releasePointerCapture?.(event.pointerId);
+      } catch {}
+      this.onDismiss?.();
     }
   }
 
@@ -127,9 +164,19 @@ export class CircleSelectTool {
   private async onPointerUp(event: PointerEvent) {
     if (event.button === 0 && this.isDragging) {
       this.isDragging = false;
+      try {
+        this.canvas.releasePointerCapture?.(event.pointerId);
+      } catch {}
       this.updatePosition(event);
       await this.confirmSelection();
     }
+  }
+
+  private onPointerCancel(event: PointerEvent) {
+    this.isDragging = false;
+    try {
+      this.canvas.releasePointerCapture?.(event.pointerId);
+    } catch {}
   }
 
   private onWheel(event: WheelEvent) {
@@ -147,18 +194,28 @@ export class CircleSelectTool {
   }
 
   private async confirmSelection() {
+    if (this.isDisposed) return;
     const cx = this.reticle.position.x;
     const cz = this.reticle.position.z;
     const r = this.radius;
+    const sessionId = useOrchestratorStore.getState().currentSessionId || 'default-session';
 
     try {
-      const sessionId = useOrchestratorStore.getState().currentSessionId || 'default-session';
-      const result = await transport.call<{ nodes: Array<{ id: string; type: string; attrs: Record<string, unknown>; x: number; z: number }> }>(
-        IPC_CHANNELS.GRAPH_QUERY_RADIUS,
-        { sessionId, x: cx, z: cz, radius: r }
-      );
+      let nodes: Array<{ id: string; type: string; attrs: Record<string, unknown>; x: number; z: number }> = [];
+      try {
+        const result = await transport.call<{ nodes: typeof nodes }>(
+          IPC_CHANNELS.GRAPH_QUERY_RADIUS,
+          { sessionId, x: cx, z: cz, radius: r }
+        );
+        if (this.isDisposed) return;
+        if (result?.success && Array.isArray(result.data?.nodes)) {
+          nodes = result.data.nodes;
+        }
+      } catch (ipcErr) {
+        console.warn('[CircleSelect] IPC radius query unavailable, falling back to local scene entities:', ipcErr);
+      }
 
-      const nodes = (result.success && result.data?.nodes) ? result.data.nodes : [];
+      if (this.isDisposed) return;
 
       const regionSet = new Set<string>();
       const npcSet = new Set<string>();
@@ -222,6 +279,31 @@ export class CircleSelectTool {
         }
       }
 
+      // Also inspect live 3D scene meshes for any active or moved entities (e.g. patrolling NPCs, transformed props)
+      const livePos = new THREE.Vector3();
+      this.scene.traverse((obj) => {
+        const u = obj.userData;
+        if (!u) return;
+        const isNpc = u.isNPC || u.type === 'npc' || (obj.name && obj.name.toLowerCase().includes('npc'));
+        const isObj = u.type === 'landmark' || u.type === 'prop' || u.type === 'item' || Boolean(u.assetId);
+
+        if (isNpc || isObj) {
+          obj.getWorldPosition(livePos);
+          const dx = livePos.x - cx;
+          const dz = livePos.z - cz;
+          if (dx * dx + dz * dz <= r * r) {
+            const entId = u.id || obj.name || obj.uuid;
+            if (isNpc && !npcSet.has(entId)) {
+              npcSet.add(entId);
+              npcs.push(entId);
+            } else if (isObj && !landmarkSet.has(entId)) {
+              landmarkSet.add(entId);
+              landmarks.push(entId);
+            }
+          }
+        }
+      });
+
       if (!useOrchestratorStore.getState().currentSessionId) {
         useOrchestratorStore.setState({ currentSessionId: sessionId });
       }
@@ -238,7 +320,10 @@ export class CircleSelectTool {
         biome: this.activeBiome,
       };
 
+      if (this.isDisposed) return;
+
       useOrchestratorStore.getState().setActiveSelection(selectionContext);
+      AudioManager.getInstance().playSelect();
 
       const uiStore = useUIStore.getState();
       if (uiStore.showNotification) {
@@ -250,6 +335,7 @@ export class CircleSelectTool {
   }
 
   public dispose() {
+    this.isDisposed = true;
     if (this.wheelDebounceTimer) {
       clearTimeout(this.wheelDebounceTimer);
       this.wheelDebounceTimer = null;
@@ -257,7 +343,9 @@ export class CircleSelectTool {
     this.canvas.removeEventListener('pointerdown', this.onPointerDownBound);
     this.canvas.removeEventListener('pointermove', this.onPointerMoveBound);
     this.canvas.removeEventListener('pointerup', this.onPointerUpBound);
+    this.canvas.removeEventListener('pointercancel', this.onPointerCancelBound);
     this.canvas.removeEventListener('wheel', this.onWheelBound);
+    this.canvas.removeEventListener('contextmenu', this.onContextMenuBound);
 
     this.scene.remove(this.reticle);
     this.reticle.children.forEach((child) => {

@@ -87,6 +87,16 @@ export async function imageToAvatarGroup(
     }
 
     const cleanInput = imageInput.trim();
+    if (
+      cleanInput.length < 20 ||
+      cleanInput === 'data:image/png;base64,' ||
+      cleanInput === 'data:image/jpeg;base64,' ||
+      cleanInput === 'undefined' ||
+      cleanInput === 'null'
+    ) {
+      console.warn('[img2threejsAdapter] Truncated or empty imageInput, returning fallback avatar');
+      return createFallbackAvatar(options);
+    }
     let dominantColor = options?.dominantColor || options?.colors?.[0];
     let contour = options?.contour;
     let aspect = options?.aspectRatio;
@@ -417,9 +427,65 @@ export function createFallbackAvatar(options?: Img2ThreeOptions): THREE.Group {
 }
 
 /**
+ * Scales an image or canvas to power-of-two dimensions for WebGL compatibility,
+ * preventing NPOT mipmapping warnings and texture distortion.
+ */
+function ensurePowerOfTwoImage(
+  image: HTMLImageElement | HTMLCanvasElement
+): HTMLCanvasElement | HTMLImageElement {
+  if (typeof document === 'undefined') return image;
+  const w = image.width;
+  const h = image.height;
+  if (w <= 0 || h <= 0) return image;
+  if (THREE.MathUtils.isPowerOfTwo(w) && THREE.MathUtils.isPowerOfTwo(h)) {
+    return image;
+  }
+  const potW = Math.min(2048, THREE.MathUtils.ceilPowerOfTwo(w));
+  const potH = Math.min(2048, THREE.MathUtils.ceilPowerOfTwo(h));
+  const canvas = document.createElement('canvas');
+  canvas.width = potW;
+  canvas.height = potH;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return image;
+  ctx.drawImage(image, 0, 0, potW, potH);
+  return canvas;
+}
+
+/**
+ * Creates a neutral solid color 4x4 canvas fallback texture for corrupted or 404 image loads.
+ */
+function createSolidFallbackTexture(hexColor = '#3b82f6'): THREE.Texture | null {
+  if (typeof document === 'undefined') return null;
+  try {
+    const canvas = document.createElement('canvas');
+    canvas.width = 4;
+    canvas.height = 4;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return null;
+    ctx.fillStyle = hexColor;
+    ctx.fillRect(0, 0, 4, 4);
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.wrapS = THREE.ClampToEdgeWrapping;
+    texture.wrapT = THREE.ClampToEdgeWrapping;
+    return texture;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Safely creates a Three.js texture from a base64 string or data URL.
+ * Handles non-power-of-two (NPOT) texture scaling, clamp-to-edge wrapping,
+ * and resilient 404 / corrupted image load error fallbacks.
  */
 function createTextureFromBase64(base64: string): THREE.Texture | null {
+  if (!base64 || typeof base64 !== 'string') return null;
+  const clean = base64.trim();
+  if (clean.length < 20 || clean === 'data:image/png;base64,' || clean === 'data:image/jpeg;base64,') {
+    return null;
+  }
+
   // If running in headless/Node test environment without Image or DOM
   if (typeof Image === 'undefined' && typeof document === 'undefined') {
     const mockTex = new THREE.Texture();
@@ -428,26 +494,57 @@ function createTextureFromBase64(base64: string): THREE.Texture | null {
   }
 
   try {
-    let dataUrl = base64.trim();
-    if (!dataUrl.startsWith('data:')) {
+    let dataUrl = clean;
+    if (!dataUrl.startsWith('data:') && !dataUrl.startsWith('http://') && !dataUrl.startsWith('https://')) {
       const isJpeg = dataUrl.startsWith('/9j/') || dataUrl.startsWith('ffd8', 0);
       dataUrl = isJpeg ? `data:image/jpeg;base64,${dataUrl}` : `data:image/png;base64,${dataUrl}`;
     }
+
     const loader = new THREE.TextureLoader();
-    const texture = loader.load(dataUrl);
+    loader.setCrossOrigin('anonymous');
+
+    const texture = loader.load(
+      dataUrl,
+      (loadedTex) => {
+        try {
+          if (loadedTex.image) {
+            const potImage = ensurePowerOfTwoImage(loadedTex.image);
+            if (potImage !== loadedTex.image) {
+              loadedTex.image = potImage;
+              loadedTex.needsUpdate = true;
+            }
+          }
+        } catch (potErr) {
+          console.warn('[img2threejsAdapter] NPOT texture scaling warning:', potErr);
+        }
+      },
+      undefined,
+      (err) => {
+        console.warn('[img2threejsAdapter] Texture load failed, using solid fallback texture:', err);
+        const fallbackTex = createSolidFallbackTexture();
+        if (fallbackTex && fallbackTex.image) {
+          texture.image = fallbackTex.image;
+          texture.needsUpdate = true;
+        }
+      }
+    );
+
     texture.colorSpace = THREE.SRGBColorSpace;
+    texture.wrapS = THREE.ClampToEdgeWrapping;
+    texture.wrapT = THREE.ClampToEdgeWrapping;
     texture.minFilter = THREE.LinearMipmapLinearFilter;
     texture.magFilter = THREE.LinearFilter;
     texture.generateMipmaps = true;
     return texture;
   } catch (err) {
     console.warn('[img2threejsAdapter] Texture creation failed:', err);
-    return null;
+    return createSolidFallbackTexture();
   }
 }
 
 /**
  * Extracts contour outline from an image using an offscreen HTMLCanvasElement.
+ * Features dual-pass alpha/color-distance thresholding to handle malformed alpha channels.
  */
 async function extractContourFromCanvas(
   input: string
@@ -465,7 +562,7 @@ async function extractContourFromCanvas(
 
     try {
       let dataUrl = input.trim();
-      if (!dataUrl.startsWith('data:')) {
+      if (!dataUrl.startsWith('data:') && !dataUrl.startsWith('http://') && !dataUrl.startsWith('https://')) {
         const isJpeg = dataUrl.startsWith('/9j/') || dataUrl.startsWith('ffd8', 0);
         dataUrl = isJpeg ? `data:image/jpeg;base64,${dataUrl}` : `data:image/png;base64,${dataUrl}`;
       }
@@ -498,50 +595,65 @@ async function extractContourFromCanvas(
           }
           const hasAlpha = transCount > (gridW * gridH * 0.02);
 
-          // If opaque, estimate background color from 4 corners
-          let bgR = 255, bgG = 255, bgB = 255;
-          if (!hasAlpha) {
-            const corners = [0, (gridW - 1) * 4, (gridH - 1) * gridW * 4, (gridH * gridW - 1) * 4];
-            let cr = 0, cg = 0, cb = 0;
-            for (const c of corners) {
-              cr += data[c];
-              cg += data[c + 1];
-              cb += data[c + 2];
-            }
-            bgR = cr / 4;
-            bgG = cg / 4;
-            bgB = cb / 4;
+          // If opaque or alpha is corrupted, estimate background color from 4 corners
+          const corners = [0, (gridW - 1) * 4, (gridH - 1) * gridW * 4, (gridH * gridW - 1) * 4];
+          let cr = 0, cg = 0, cb = 0;
+          for (const c of corners) {
+            cr += data[c];
+            cg += data[c + 1];
+            cb += data[c + 2];
           }
+          const bgR = cr / 4;
+          const bgG = cg / 4;
+          const bgB = cb / 4;
 
-          const leftSide: Array<[number, number]> = [];
-          const rightSide: Array<[number, number]> = [];
+          const traceContour = (useAlpha: boolean): { left: Array<[number, number]>; right: Array<[number, number]> } => {
+            const leftSide: Array<[number, number]> = [];
+            const rightSide: Array<[number, number]> = [];
+            let totalFg = 0;
 
-          for (let gy = 0; gy < gridH; gy++) {
-            let firstX = -1;
-            let lastX = -1;
-            for (let gx = 0; gx < gridW; gx++) {
-              const idx = (gy * gridW + gx) * 4;
-              let isFg = false;
-              if (hasAlpha) {
-                isFg = data[idx + 3] > 30;
-              } else {
-                const dist = Math.sqrt(
-                  (data[idx] - bgR) ** 2 +
-                  (data[idx + 1] - bgG) ** 2 +
-                  (data[idx + 2] - bgB) ** 2
-                );
-                isFg = dist > 35;
+            for (let gy = 0; gy < gridH; gy++) {
+              let firstX = -1;
+              let lastX = -1;
+              for (let gx = 0; gx < gridW; gx++) {
+                const idx = (gy * gridW + gx) * 4;
+                let isFg = false;
+                if (useAlpha) {
+                  isFg = data[idx + 3] > 30;
+                } else {
+                  const dist = Math.sqrt(
+                    (data[idx] - bgR) ** 2 +
+                    (data[idx + 1] - bgG) ** 2 +
+                    (data[idx + 2] - bgB) ** 2
+                  );
+                  isFg = dist > 35;
+                }
+
+                if (isFg) {
+                  totalFg++;
+                  if (firstX === -1) firstX = gx;
+                  lastX = gx;
+                }
               }
-
-              if (isFg) {
-                if (firstX === -1) firstX = gx;
-                lastX = gx;
+              if (firstX !== -1 && lastX !== -1) {
+                leftSide.push([firstX / gridW, gy / gridH]);
+                rightSide.push([lastX / gridW, gy / gridH]);
               }
             }
-            if (firstX !== -1 && lastX !== -1) {
-              leftSide.push([firstX / gridW, gy / gridH]);
-              rightSide.push([lastX / gridW, gy / gridH]);
+            // If alpha mask selected whole rectangle or almost nothing, signal failure
+            if (useAlpha && (leftSide.length < 3 || totalFg >= gridW * gridH * 0.98)) {
+              return { left: [], right: [] };
             }
+            return { left: leftSide, right: rightSide };
+          };
+
+          let { left: leftSide, right: rightSide } = traceContour(hasAlpha);
+
+          // Fallback to background color distance if alpha pass produced no silhouette
+          if (leftSide.length < 3) {
+            const fallbackPass = traceContour(false);
+            leftSide = fallbackPass.left;
+            rightSide = fallbackPass.right;
           }
 
           if (leftSide.length < 3) {

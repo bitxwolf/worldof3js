@@ -96,6 +96,7 @@ export const PromptInput = ({ uploadedImages = [] }: { uploadedImages?: Uploaded
         useUIStore.getState().setActiveBiome(result.activeBiome);
         setSceneGraph(result.sceneGraph);
         setJsonInspectorOpen(true);
+        useUIStore.getState().setViewMode('world');
       } else {
         const storeErr = useOrchestratorStore.getState().error;
         if (storeErr) {

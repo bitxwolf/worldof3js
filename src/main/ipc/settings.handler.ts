@@ -7,7 +7,20 @@ export function registerSettingsHandlers(): void {
     apiKey: string;
   }) => {
     try {
-      const url = `${baseUrl.replace(/\/$/, '')}/models`;
+      if (!baseUrl || typeof baseUrl !== 'string' || !baseUrl.trim()) {
+        return { success: false, error: { message: 'Base URL is required' } };
+      }
+      let parsedUrl: URL;
+      try {
+        parsedUrl = new URL(baseUrl.trim());
+      } catch {
+        return { success: false, error: { message: 'Invalid Base URL format' } };
+      }
+      if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
+        return { success: false, error: { message: 'Protocol not allowed: only HTTP and HTTPS are permitted' } };
+      }
+
+      const url = `${parsedUrl.origin}${parsedUrl.pathname.replace(/\/$/, '')}/models`;
       const res = await fetch(url, {
         headers: { 'Authorization': `Bearer ${apiKey}` },
         signal: AbortSignal.timeout(8000),

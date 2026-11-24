@@ -810,9 +810,9 @@ export const LeftSidebar = () => {
             </div>
             <input
               type="range"
-              min="10"
-              max="170"
-              step="5"
+              min="5"
+              max="90"
+              step="1"
               value={tuningParams.sunAngle}
               onChange={(e) => {
                 const val = parseFloat(e.target.value);

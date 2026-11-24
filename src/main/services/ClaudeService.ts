@@ -162,6 +162,9 @@ export class ClaudeService {
   }
 
   async parseWorld(payload: ParseWorldPayload): Promise<SceneGraph> {
+    if (!payload || typeof payload !== 'object') {
+      throw new Error('Invalid or empty payload for parseWorld');
+    }
     if (payload.text && payload.text.length > MAX_PROMPT_LENGTH) {
       throw new Error(`Input prompt exceeds maximum allowed length of ${MAX_PROMPT_LENGTH} characters`);
     }
@@ -205,6 +208,9 @@ export class ClaudeService {
   }
 
   async enrichWorld(graph: SceneGraph): Promise<EnrichedSceneGraph> {
+    if (!graph || typeof graph !== 'object') {
+      throw new Error('Invalid or empty sceneGraph for enrichWorld');
+    }
     const claudeCall = async (system: string, user: string): Promise<string> => {
       return this.executeChat(system, user, 1024);
     };
@@ -212,6 +218,9 @@ export class ClaudeService {
   }
 
   async generateCode(graph: SceneGraph | EnrichedSceneGraph): Promise<string> {
+    if (!graph || typeof graph !== 'object') {
+      throw new Error('Invalid or empty sceneGraph for generateCode');
+    }
     if (graph.world?.description && graph.world.description.length > MAX_PROMPT_LENGTH) {
       graph.world.description = graph.world.description.slice(0, MAX_PROMPT_LENGTH);
     }
@@ -248,6 +257,9 @@ export class ClaudeService {
   }
 
   async updateWorld(payload: UpdateWorldPayload): Promise<Partial<SceneGraph>> {
+    if (!payload || typeof payload !== 'object') {
+      throw new Error('Invalid or empty payload for updateWorld');
+    }
     if (payload.updatePrompt && payload.updatePrompt.length > MAX_PROMPT_LENGTH) {
       throw new Error(`Update prompt exceeds maximum allowed length of ${MAX_PROMPT_LENGTH} characters`);
     }
@@ -315,6 +327,10 @@ export class ClaudeService {
 
     if (!apiKey || !apiKey.trim()) {
       throw new APIKeyMissingError();
+    }
+
+    if (!payload || typeof payload !== 'object') {
+      throw new Error('Invalid or empty payload for npcReplyStream');
     }
 
     if (payload.playerMessage && payload.playerMessage.length > MAX_PROMPT_LENGTH) {

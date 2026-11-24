@@ -66,7 +66,12 @@ export function registerOrchestratorHandlers(getWindow: () => BrowserWindow | nu
         const sessionId = payload?.sessionId || 'default-session';
         const graph = new WorldGraph(graphStore);
         await graph.hydrate(sessionId);
-        const nodes = graph.queryRadius(payload?.x ?? 0, payload?.z ?? 0, payload?.radius ?? 25);
+        const qx = typeof payload?.x === 'number' && Number.isFinite(payload.x) ? payload.x : 0;
+        const qz = typeof payload?.z === 'number' && Number.isFinite(payload.z) ? payload.z : 0;
+        const qr = typeof payload?.radius === 'number' && Number.isFinite(payload.radius) && payload.radius > 0
+          ? Math.min(payload.radius, 500)
+          : 25;
+        const nodes = graph.queryRadius(qx, qz, qr);
         return { success: true, data: { nodes } };
       } catch (err) {
         const e = err instanceof Error ? err : new Error(String(err));

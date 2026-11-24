@@ -4,7 +4,7 @@ import * as path from 'path';
 import pdf from 'pdf-parse';
 import { IPC_CHANNELS } from '../../shared/constants';
 import type { IPCResult, SavedWorld } from '../../shared/ipc.types';
-import { SavedWorldSchema, type SceneGraph } from '../../shared/schema/sceneGraph.schema';
+import { SavedWorldSchema, SceneGraphSchema, type SceneGraph } from '../../shared/schema/sceneGraph.schema';
 
 const allowedPaths = new Set<string>();
 const MAX_FILE_SIZE = 25 * 1024 * 1024; // 25MB
@@ -230,18 +230,52 @@ export function registerFileHandlers(): void {
           // ignore
         }
         const content = await fs.readFile(selectedPath, 'utf-8');
-        const parsed: unknown = JSON.parse(content);
-        const parsedResult = SavedWorldSchema.safeParse(parsed);
-        if (!parsedResult.success) {
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(content);
+        } catch (jsonErr) {
+          const msg = jsonErr instanceof Error ? jsonErr.message : String(jsonErr);
           return {
             success: false,
             error: {
-              name: 'ValidationError',
-              message: `Invalid world schema: ${parsedResult.error.message}`,
+              name: 'JSONSyntaxError',
+              message: `Malformed or truncated JSON file: ${msg}`,
             },
           };
         }
-        return { success: true, data: parsedResult.data };
+
+        const savedResult = SavedWorldSchema.safeParse(parsed);
+        if (savedResult.success) {
+          return { success: true, data: savedResult.data };
+        }
+
+        // Support importing raw SceneGraph JSON exports (e.g. from JSON Inspector)
+        const sceneGraphResult = SceneGraphSchema.safeParse(parsed);
+        if (sceneGraphResult.success) {
+          const defaultSpawn = sceneGraphResult.data.player?.spawn || [0, 1.7, 0];
+          const rawName = sceneGraphResult.data.world?.name || path.basename(selectedPath, '.json');
+          const wrappedWorld: SavedWorld = {
+            name: rawName,
+            timestamp: Date.now(),
+            sceneGraph: sceneGraphResult.data,
+            flags: sceneGraphResult.data.flags || {},
+            playerPosition: [defaultSpawn[0] || 0, defaultSpawn[1] || 1.7, defaultSpawn[2] || 0],
+          };
+          return { success: true, data: wrappedWorld };
+        }
+
+        const issues = savedResult.error.issues
+          .map((i) => `${i.path.join('.') || 'root'}: ${i.message}`)
+          .slice(0, 3)
+          .join(', ');
+
+        return {
+          success: false,
+          error: {
+            name: 'ValidationError',
+            message: `Incompatible world schema (${issues})`,
+          },
+        };
       } catch (err: unknown) {
         const error = err instanceof Error ? err : new Error(String(err));
         return { success: false, error: { name: error.name, message: error.message } };

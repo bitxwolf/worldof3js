@@ -253,17 +253,19 @@ export class ImageService {
   }
 
   /**
-   * Pure TypeScript PNG decoder for 8-bit RGBA and RGB PNGs using standard Node zlib.
+   * Pure TypeScript PNG decoder for 8-bit RGBA, RGB, grayscale, and indexed PNGs using standard Node zlib.
    */
   private decodePng(
     buffer: Buffer
   ): { rgba: Uint8Array; width: number; height: number; hasAlpha: boolean } | null {
     let pos = 8;
     const idatBuffers: Buffer[] = [];
+    let paletteBuffer: Buffer | null = null;
+    let trnsBuffer: Buffer | null = null;
     let width = 0;
     let height = 0;
     let bitDepth = 8;
-    let colorType = 6; // 6 = RGBA, 2 = RGB
+    let colorType = 6; // 6 = RGBA, 2 = RGB, 3 = Indexed, 0 = Grayscale
 
     while (pos < buffer.length - 8) {
       const len = buffer.readUInt32BE(pos);
@@ -273,8 +275,12 @@ export class ImageService {
         height = buffer.readUInt32BE(pos + 12);
         bitDepth = buffer.readUInt8(pos + 16);
         colorType = buffer.readUInt8(pos + 17);
+      } else if (type === 'PLTE') {
+        paletteBuffer = buffer.subarray(pos + 8, Math.min(buffer.length, pos + 8 + len));
+      } else if (type === 'tRNS') {
+        trnsBuffer = buffer.subarray(pos + 8, Math.min(buffer.length, pos + 8 + len));
       } else if (type === 'IDAT') {
-        idatBuffers.push(buffer.subarray(pos + 8, pos + 8 + len));
+        idatBuffers.push(buffer.subarray(pos + 8, Math.min(buffer.length, pos + 8 + len)));
       } else if (type === 'IEND') {
         break;
       }
@@ -284,8 +290,17 @@ export class ImageService {
     if (idatBuffers.length === 0 || width === 0 || height === 0) return null;
     if (bitDepth !== 8) return null; // Support 8-bit channels
 
-    const bytesPerPixel = colorType === 6 ? 4 : colorType === 2 ? 3 : colorType === 0 ? 1 : 4;
-    const decompressed = zlib.inflateSync(Buffer.concat(idatBuffers));
+    const bytesPerPixel = colorType === 6 ? 4 : colorType === 2 ? 3 : (colorType === 3 || colorType === 0) ? 1 : 4;
+    let decompressed: Buffer;
+    try {
+      decompressed = zlib.inflateSync(Buffer.concat(idatBuffers));
+    } catch {
+      try {
+        decompressed = zlib.inflateRawSync(Buffer.concat(idatBuffers));
+      } catch {
+        return null;
+      }
+    }
 
     const scanlineWidth = width * bytesPerPixel;
     const rawRgba = new Uint8Array(width * height * 4);
@@ -295,9 +310,10 @@ export class ImageService {
     const currRow = new Uint8Array(scanlineWidth);
 
     for (let y = 0; y < height; y++) {
+      if (offset >= decompressed.length) break;
       const filterType = decompressed[offset++];
       for (let i = 0; i < scanlineWidth; i++) {
-        const x = decompressed[offset++];
+        const x = offset < decompressed.length ? decompressed[offset++] : 0;
         const a = i >= bytesPerPixel ? currRow[i - bytesPerPixel] : 0;
         const b = prevRow[i];
         const c = i >= bytesPerPixel ? prevRow[i - bytesPerPixel] : 0;
@@ -324,6 +340,17 @@ export class ImageService {
       const rowOut = y * width * 4;
       if (bytesPerPixel === 4) {
         rawRgba.set(currRow, rowOut);
+      } else if (colorType === 3 && paletteBuffer) {
+        // Indexed PNG with palette and optional tRNS
+        for (let x = 0; x < width; x++) {
+          const outIdx = rowOut + x * 4;
+          const palIdx = currRow[x];
+          const palOffset = palIdx * 3;
+          rawRgba[outIdx] = paletteBuffer[palOffset] ?? 0;
+          rawRgba[outIdx + 1] = paletteBuffer[palOffset + 1] ?? 0;
+          rawRgba[outIdx + 2] = paletteBuffer[palOffset + 2] ?? 0;
+          rawRgba[outIdx + 3] = trnsBuffer && palIdx < trnsBuffer.length ? trnsBuffer[palIdx] : 255;
+        }
       } else if (bytesPerPixel === 3) {
         for (let x = 0; x < width; x++) {
           const outIdx = rowOut + x * 4;
@@ -334,6 +361,7 @@ export class ImageService {
           rawRgba[outIdx + 3] = 255;
         }
       } else {
+        // Grayscale
         for (let x = 0; x < width; x++) {
           const outIdx = rowOut + x * 4;
           const val = currRow[x];
@@ -347,11 +375,22 @@ export class ImageService {
       prevRow.set(currRow);
     }
 
+    // Inspect actual decoded alpha channel
+    let hasAlpha = false;
+    if (colorType === 6 || (colorType === 3 && trnsBuffer !== null)) {
+      for (let i = 3; i < rawRgba.length; i += 4) {
+        if (rawRgba[i] < 240) {
+          hasAlpha = true;
+          break;
+        }
+      }
+    }
+
     return {
       rgba: rawRgba,
       width,
       height,
-      hasAlpha: colorType === 6,
+      hasAlpha,
     };
   }
 
@@ -444,37 +483,65 @@ export class ImageService {
     const scaleY = height / gridH;
 
     const mask = new Uint8Array(gridW * gridH);
+    let isAlphaPass = hasAlpha;
     let minX = gridW, maxX = 0, minY = gridH, maxY = 0;
     let foregroundCount = 0;
 
-    for (let gy = 0; gy < gridH; gy++) {
-      const srcY = Math.min(height - 1, Math.floor((gy + 0.5) * scaleY));
-      for (let gx = 0; gx < gridW; gx++) {
-        const srcX = Math.min(width - 1, Math.floor((gx + 0.5) * scaleX));
-        const idx = (srcY * width + srcX) * 4;
-        const a = rgba[idx + 3];
-        let isForeground = false;
+    const computeMask = (useAlpha: boolean) => {
+      minX = gridW; maxX = 0; minY = gridH; maxY = 0;
+      foregroundCount = 0;
+      mask.fill(0);
 
-        if (hasAlpha) {
-          isForeground = a > 25;
-        } else {
-          // Color distance from background
-          const r = rgba[idx];
-          const g = rgba[idx + 1];
-          const b = rgba[idx + 2];
-          const dist = Math.sqrt((r - bgR) ** 2 + (g - bgG) ** 2 + (b - bgB) ** 2);
-          isForeground = dist > 35;
+      // Average 4 corners if relying on color distance
+      if (!useAlpha) {
+        const corners = [0, (width - 1) * 4, (height - 1) * width * 4, (height * width - 1) * 4];
+        let cr = 0, cg = 0, cb = 0;
+        for (const c of corners) {
+          cr += rgba[c];
+          cg += rgba[c + 1];
+          cb += rgba[c + 2];
         }
+        bgR = cr / 4;
+        bgG = cg / 4;
+        bgB = cb / 4;
+      }
 
-        if (isForeground) {
-          mask[gy * gridW + gx] = 1;
-          foregroundCount++;
-          if (gx < minX) minX = gx;
-          if (gx > maxX) maxX = gx;
-          if (gy < minY) minY = gy;
-          if (gy > maxY) maxY = gy;
+      for (let gy = 0; gy < gridH; gy++) {
+        const srcY = Math.min(height - 1, Math.floor((gy + 0.5) * scaleY));
+        for (let gx = 0; gx < gridW; gx++) {
+          const srcX = Math.min(width - 1, Math.floor((gx + 0.5) * scaleX));
+          const idx = (srcY * width + srcX) * 4;
+          const a = rgba[idx + 3];
+          let isForeground = false;
+
+          if (useAlpha) {
+            isForeground = a > 25;
+          } else {
+            const r = rgba[idx];
+            const g = rgba[idx + 1];
+            const b = rgba[idx + 2];
+            const dist = Math.sqrt((r - bgR) ** 2 + (g - bgG) ** 2 + (b - bgB) ** 2);
+            isForeground = dist > 35;
+          }
+
+          if (isForeground) {
+            mask[gy * gridW + gx] = 1;
+            foregroundCount++;
+            if (gx < minX) minX = gx;
+            if (gx > maxX) maxX = gx;
+            if (gy < minY) minY = gy;
+            if (gy > maxY) maxY = gy;
+          }
         }
       }
+    };
+
+    computeMask(isAlphaPass);
+
+    // If alpha segmentation failed or selected the whole rectangle (malformed alpha channel),
+    // fall back to corner-based background color distance segmentation
+    if (isAlphaPass && (foregroundCount < 10 || foregroundCount >= gridW * gridH * 0.98)) {
+      computeMask(false);
     }
 
     if (foregroundCount < 10) {

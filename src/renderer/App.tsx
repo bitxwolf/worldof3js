@@ -18,14 +18,15 @@ import { InventoryBar } from './components/HUD/InventoryBar';
 const App = () => {
   const {
     leftSidebarOpen,
-    rightInspectorOpen,
     cameraMode,
     isDocUploaderOpen,
     isImageUploaderOpen,
+    jsonInspectorOpen,
     setIsDocUploaderOpen,
     setIsImageUploaderOpen,
     toggleDocUploader,
     toggleImageUploader,
+    toggleJsonInspector,
   } = useUIStore();
 
   useEffect(() => {
@@ -66,9 +67,11 @@ const App = () => {
         {/* JSON Inspector & Ingestion Controls (active in Orbit view) */}
         {cameraMode !== 'walk' && (
           <>
-            <div className={`absolute bottom-0 ${leftSidebarOpen ? 'left-72' : 'left-0'} ${rightInspectorOpen ? 'right-80' : 'right-0'} z-25 p-2 pointer-events-auto transition-all duration-200`}>
-              <JSONInspector />
-            </div>
+            {jsonInspectorOpen && (
+              <div className="absolute bottom-24 left-1/2 -translate-x-1/2 w-11/12 max-w-2xl z-35 pointer-events-auto transition-all duration-200">
+                <JSONInspector />
+              </div>
+            )}
 
             {/* Upload Buttons in Prompt Area */}
             <div className={`absolute bottom-2 ${leftSidebarOpen ? 'left-74' : 'left-2'} z-40 flex items-end gap-2 p-2 pointer-events-none transition-all duration-200`}>
@@ -98,6 +101,19 @@ const App = () => {
                 >
                   <span>🖼️</span>
                   <span className="text-[11px] font-medium hidden sm:inline">Images</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={toggleJsonInspector}
+                  className={`px-2.5 py-1.5 rounded-lg text-xs border backdrop-blur-sm shadow-md transition flex items-center space-x-1 cursor-pointer ${
+                    jsonInspectorOpen
+                      ? 'bg-blue-600 border-blue-400 text-white'
+                      : 'bg-gray-800/90 hover:bg-gray-700 text-white border-white/10'
+                  }`}
+                  title="View Scene Graph JSON"
+                >
+                  <span>📋</span>
+                  <span className="text-[11px] font-medium hidden sm:inline">JSON</span>
                 </button>
               </div>
             </div>

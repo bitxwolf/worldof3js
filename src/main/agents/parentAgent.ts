@@ -48,8 +48,12 @@ export class ParentAgent {
   ) {}
 
   async generate(request: WorldRequest): Promise<CompiledWorldResult> {
+    if (!request || typeof request !== 'object') {
+      throw new Error('Invalid or missing WorldRequest');
+    }
+    const rawPrompt = typeof request.rawPrompt === 'string' ? request.rawPrompt : '';
     const sessionManager = new SessionManager(this.kvStore, this.graphStore);
-    const session = await sessionManager.createSession(request.rawPrompt);
+    const session = await sessionManager.createSession(rawPrompt);
     const graph = new WorldGraph(this.graphStore);
     graph.reset(session.id);
 

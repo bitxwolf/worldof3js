@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNPCStore } from '../../store/npcStore';
+import { AudioManager } from '../../engine/AudioManager';
 
 export const DialogueBox = React.memo(function DialogueBox({
   npcName,
@@ -19,9 +20,10 @@ export const DialogueBox = React.memo(function DialogueBox({
   const [inputText, setInputText] = useState('');
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
-  const { dialogueHistory } = useNPCStore();
+  const { dialogueHistory, branchOptions, setCurrentBranch } = useNPCStore();
   const npcId = useNPCStore((s) => s.activeNPC?.id ?? '');
   const history = dialogueHistory[npcId] || [];
+  const activeChoices = branchOptions[npcId] || [];
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -31,12 +33,29 @@ export const DialogueBox = React.memo(function DialogueBox({
     inputRef.current?.focus();
   }, [isStreaming]);
 
+  useEffect(() => {
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleGlobalKeyDown);
+    return () => window.removeEventListener('keydown', handleGlobalKeyDown);
+  }, [onClose]);
+
   const handleSend = useCallback(() => {
     const msg = inputText.trim();
     if (!msg || isStreaming) return;
     onSendMessage(msg);
     setInputText('');
   }, [inputText, isStreaming, onSendMessage]);
+
+  const handleSelectChoice = useCallback((choice: string) => {
+    if (isStreaming) return;
+    AudioManager.getInstance().playInteract();
+    setCurrentBranch(choice);
+    onSendMessage(choice);
+  }, [isStreaming, onSendMessage, setCurrentBranch]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -99,6 +118,22 @@ export const DialogueBox = React.memo(function DialogueBox({
           )}
           <div ref={messagesEndRef} />
         </div>
+
+        {/* Branch Choices / Quick Prompts */}
+        {activeChoices.length > 0 && !isStreaming && (
+          <div className="px-4 py-2 border-t border-gray-800/60 bg-gray-900/40 flex flex-wrap gap-1.5">
+            {activeChoices.map((choice, idx) => (
+              <button
+                key={idx}
+                type="button"
+                onClick={() => handleSelectChoice(choice)}
+                className="px-2.5 py-1 text-xs rounded-lg bg-indigo-950/70 border border-indigo-700/50 hover:bg-indigo-900/80 hover:border-indigo-500 text-indigo-200 transition-colors cursor-pointer text-left"
+              >
+                💬 {choice}
+              </button>
+            ))}
+          </div>
+        )}
 
         {/* Input */}
         <div className="px-4 py-3 border-t border-gray-800 flex gap-2">

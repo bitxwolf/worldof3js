@@ -4,7 +4,7 @@ import { useWorldStore } from '../../store/worldStore';
 import { useSessionStore } from '../../store/sessionStore';
 import type { SavedWorld } from '../../../shared/ipc.types';
 import type { SceneGraph } from '../../../shared/schema/sceneGraph.schema';
-import { SavedWorldSchema } from '../../../shared/schema/sceneGraph.schema';
+import { SavedWorldSchema, SceneGraphSchema } from '../../../shared/schema/sceneGraph.schema';
 import { generateStandaloneHtml } from '../../../shared/exportHtml';
 
 interface SavedWorldEntry {
@@ -18,6 +18,16 @@ interface SavedWorldEntry {
 }
 
 export const STORAGE_KEY = 'orbis_saved_worlds';
+
+export const sanitizePlayerPosition = (pos: unknown): [number, number, number] => {
+  if (Array.isArray(pos) && pos.length >= 3) {
+    const x = typeof pos[0] === 'number' && Number.isFinite(pos[0]) ? pos[0] : 0;
+    const y = typeof pos[1] === 'number' && Number.isFinite(pos[1]) ? pos[1] : 1.7;
+    const z = typeof pos[2] === 'number' && Number.isFinite(pos[2]) ? pos[2] : 0;
+    return [x, y, z];
+  }
+  return [0, 1.7, 0];
+};
 
 export const downscaleCanvasToThumbnail = (
   canvas: HTMLCanvasElement,
@@ -258,7 +268,7 @@ export const WorldLibraryModal = () => {
         });
       }
       if (worldData.playerPosition) {
-        useWorldStore.getState().setPlayerPosition(worldData.playerPosition);
+        useWorldStore.getState().setPlayerPosition(sanitizePlayerPosition(worldData.playerPosition));
       }
       showNotification(`World loaded: ${entry.name}`, 3500, 'success');
       closeLibrary();
@@ -290,12 +300,12 @@ export const WorldLibraryModal = () => {
             });
           }
           if (res.data.playerPosition) {
-            useWorldStore.getState().setPlayerPosition(res.data.playerPosition);
+            useWorldStore.getState().setPlayerPosition(sanitizePlayerPosition(res.data.playerPosition));
           }
           showNotification(`World loaded: ${res.data.name}`, 4000, 'success');
           closeLibrary();
         } else if (!res.success) {
-          showNotification(`Load error: ${res.error.message}`, 4000, 'warning');
+          showNotification(`Load error: ${res.error.message}`, 5000, 'warning');
         }
       } else {
         // Browser fallback: file picker
@@ -307,27 +317,56 @@ export const WorldLibraryModal = () => {
           if (!file) return;
           try {
             const text = await file.text();
-            const parsed = JSON.parse(text);
-            const result = SavedWorldSchema.safeParse(parsed);
-            if (!result.success) {
-              showNotification('Invalid world file schema.', 4000, 'warning');
+            let parsed: unknown;
+            try {
+              parsed = JSON.parse(text);
+            } catch (syntaxErr) {
+              const msg = syntaxErr instanceof Error ? syntaxErr.message : String(syntaxErr);
+              showNotification(`Malformed or truncated JSON: ${msg}`, 5000, 'error');
               return;
             }
+
+            let loadedData: SavedWorld;
+            const savedResult = SavedWorldSchema.safeParse(parsed);
+            if (savedResult.success) {
+              loadedData = savedResult.data;
+            } else {
+              const sgResult = SceneGraphSchema.safeParse(parsed);
+              if (sgResult.success) {
+                const defaultSpawn = sgResult.data.player?.spawn || [0, 1.7, 0];
+                loadedData = {
+                  name: sgResult.data.world?.name || file.name.replace(/\.json$/i, '') || 'Imported World',
+                  timestamp: Date.now(),
+                  sceneGraph: sgResult.data,
+                  flags: sgResult.data.flags || {},
+                  playerPosition: sanitizePlayerPosition(defaultSpawn),
+                };
+              } else {
+                const issues = savedResult.error.issues
+                  .map((i) => `${i.path.join('.') || 'root'}: ${i.message}`)
+                  .slice(0, 3)
+                  .join(', ');
+                showNotification(`Incompatible world file schema (${issues})`, 5000, 'warning');
+                return;
+              }
+            }
+
             useWorldStore.getState().setCustomWorldActive(true);
-            setSceneGraph(result.data.sceneGraph);
-            setGeneratedCode(result.data.generatedCode ?? null);
-            if (result.data.flags) {
-              Object.entries(result.data.flags).forEach(([k, v]) => {
+            setSceneGraph(loadedData.sceneGraph);
+            setGeneratedCode(loadedData.generatedCode ?? null);
+            if (loadedData.flags) {
+              Object.entries(loadedData.flags).forEach(([k, v]) => {
                 useWorldStore.getState().setFlag(k, v);
               });
             }
-            if (result.data.playerPosition) {
-              useWorldStore.getState().setPlayerPosition(result.data.playerPosition);
+            if (loadedData.playerPosition) {
+              useWorldStore.getState().setPlayerPosition(sanitizePlayerPosition(loadedData.playerPosition));
             }
-            showNotification(`World loaded: ${result.data.name || file.name}`, 4000, 'success');
+            showNotification(`World loaded: ${loadedData.name || file.name}`, 4000, 'success');
             closeLibrary();
-          } catch {
-            showNotification('Failed to parse world file.', 4000, 'warning');
+          } catch (fileErr) {
+            const msg = fileErr instanceof Error ? fileErr.message : String(fileErr);
+            showNotification(`Failed to process world file: ${msg}`, 4000, 'warning');
           }
         };
         input.click();
